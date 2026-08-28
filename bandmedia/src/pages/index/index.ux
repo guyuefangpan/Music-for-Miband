@@ -57,7 +57,7 @@
 <script>
 import router from "@system.router"
 import device from "@system.device"
-import { readMediaState, sendControlCommand } from "../../common/media-sync.js"
+import { readMediaState, normalizeMediaState, sendControlCommand } from "../../common/media-sync.js"
 import { readTheme } from "../../common/theme.js"
 import { readDebugMode } from "../../common/debug.js"
 
@@ -90,17 +90,16 @@ export default {
     this.detectDevice()
     this.refreshClock()
     this.loadTheme()
-    this.refreshData()
+    readDebugMode(enabled => { this.debugMode = enabled; this.refreshData() })
     this.timer = setInterval(() => {
       this.refreshClock()
-      this.loadTheme()
       this.refreshData()
-    }, 1000)
+    }, 50)
   },
   loadTheme() { readTheme(theme => { this.theme = theme }) },
-  refreshData() { readDebugMode(enabled => { this.debugMode = enabled; this.loadSyncData() }) },
+  refreshData() { this.loadSyncData() },
   detectDevice() {
-    device.getInfo({ success: info => { const width = info.screenWidth || info.width || info.windowWidth; const height = info.screenHeight || info.height || info.windowHeight; this.isRing10 = Number(width) === 212 && Number(height) === 520 } })
+    device.getInfo({ success: info => { const width = info.screenWidth || info.width || info.windowWidth; const height = info.screenHeight || info.height || info.windowHeight; this.isRing10 = Number(width) === 212 && Number(height) === 520 }, fail: () => {}, complete: () => {} })
   },
   onDestroy() {
     if (this.timer) clearInterval(this.timer)
@@ -127,7 +126,20 @@ export default {
       this.connectionState = "已连接"
       return
     }
+    const realtime = this.$app.$def.getRealtimeMediaState()
+    if (realtime && realtime.state) {
+      this.applyMediaState(normalizeMediaState(realtime.state, realtime.connected))
+      return
+    }
     readMediaState(media => {
+      this.applyMediaState(media)
+    }, () => {
+      this.syncState = "等待 Android 同步器"
+      this.connectionState = "未连接"
+      this.connected = false
+    })
+  },
+  applyMediaState(media) {
       this.song = media.title
       this.artist = media.artist
       this.album = media.album
@@ -146,11 +158,6 @@ export default {
       this.syncState = "已同步"
       this.connectionState = media.connectionState
       this.connected = media.connectionState === "已连接"
-    }, () => {
-      this.syncState = "等待 Android 同步器"
-      this.connectionState = "未连接"
-      this.connected = false
-    })
   },
   routeLyrics() { router.push({ uri: "/pages/detail" }) },
   routeVolume() { router.push({ uri: "/pages/volume" }) },
@@ -158,7 +165,6 @@ export default {
   exitApp() { router.back() },
   togglePlayback() {
     sendControlCommand(this.playing ? "pause" : "play")
-    this.playing = !this.playing
   },
   previous() { sendControlCommand("previous") },
   next() { sendControlCommand("next") },

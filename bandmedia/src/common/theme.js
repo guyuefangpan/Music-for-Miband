@@ -6,6 +6,7 @@ export function readTheme(success) {
   storage.get({
     key: THEME_KEY,
     success: value => success(value === "day" || value === "cover" || value === "night" ? value : "night"),
-    fail: () => success("night")
+    fail: () => success("night"),
+    complete: () => {}
   })
 }

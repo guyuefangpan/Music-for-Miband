@@ -14,7 +14,7 @@ class MediaSyncService : Service() {
     private lateinit var bridge: WearBridge
     private val handler = Handler(Looper.getMainLooper())
     private var lastSemantic = ""
-    private var tick = 0
+    private var lastPlaybackState = ""
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -23,15 +23,17 @@ class MediaSyncService : Service() {
                 media.packageName, media.title, media.artist, media.album, media.playbackState,
                 media.durationMs, media.volume, media.muted, media.albumArt.hashCode(), media.lyrics.hashCode()
             ).joinToString("|")
-            tick++
-            if (semantic != lastSemantic || (media.playbackState == "playing" && tick % 2 == 0)) {
-                if (semantic != lastSemantic) {
-                    CommunicationLog.info("MEDIA", if (media.title.isBlank()) "播放信息已清空" else "${media.sourceName}: ${media.title}")
-                }
+            val playbackStateChanged = media.playbackState != lastPlaybackState
+            if (semantic != lastSemantic) {
+                CommunicationLog.info("MEDIA", if (media.title.isBlank()) "播放信息已清空" else "${media.sourceName}: ${media.title}")
                 lastSemantic = semantic
                 bridge.sendMusicState(media)
             }
-            handler.postDelayed(this, 1000L)
+            lastPlaybackState = media.playbackState
+            // Keep confirming paused/buffering/stopped as well as playing. A state
+            // transition is urgent so lyrics or artwork cannot leave stale controls.
+            if (media.title.isNotBlank()) bridge.sendProgressState(media, playbackStateChanged)
+            handler.postDelayed(this, 100L)
         }
     }
 
@@ -53,11 +55,23 @@ class MediaSyncService : Service() {
                 "volume_down" -> SystemMediaMonitor.adjustVolume(-1)
                 "togglemute" -> SystemMediaMonitor.toggleMute()
             }
+            confirmControlResult()
         }
         createChannel()
         startForeground(NOTIFICATION_ID, notification())
         bridge.start()
         handler.post(ticker)
+    }
+
+    private fun confirmControlResult() {
+        // MediaSession commands are asynchronous. Re-read the authoritative state
+        // a few times instead of guessing that the requested action succeeded.
+        listOf(50L, 150L, 300L).forEach { delayMs ->
+            handler.postDelayed({
+                val media = SystemMediaMonitor.currentState()
+                if (media.title.isNotBlank()) bridge.sendProgressState(media, urgent = true)
+            }, delayMs)
+        }
     }
 
     private fun createChannel() {
@@ -76,13 +90,19 @@ class MediaSyncService : Service() {
         .build()
 
     override fun onDestroy() {
-        handler.removeCallbacks(ticker)
+        handler.removeCallbacksAndMessages(null)
         SystemMediaMonitor.stop()
         bridge.stop()
         bridge.onControl = null
         bridge.onMusicRequest = null
         bridge.onConnected = null
         super.onDestroy()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForeground(NOTIFICATION_ID, notification())
+        if (bridge.state.value == WearState.DISCONNECTED || bridge.state.value == WearState.ERROR) bridge.start()
+        return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

@@ -5,7 +5,11 @@ import com.vt.starry.BuildConfig
 import android.content.ComponentName
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.Icon
 import android.graphics.drawable.BitmapDrawable
+import android.net.Uri
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaController
@@ -44,6 +48,9 @@ data class SystemMediaState(
 
 object SystemMediaMonitor {
     private const val TAG = "SystemMediaMonitor"
+    // The watch renders the cover at roughly 230 px. Keep enough source pixels to avoid
+    // upscaling blur; WearBridge still divides this into three logical pieces and safe packets.
+    private const val MAX_ARTWORK_DATA_URI_CHARS = 60_000
     private val _state = MutableStateFlow(SystemMediaState())
     val state: StateFlow<SystemMediaState> = _state.asStateFlow()
     private val _notificationAccess = MutableStateFlow(false)
@@ -109,9 +116,14 @@ object SystemMediaMonitor {
         notificationLyrics = mediaNotifications.mapNotNull { item ->
             extractNotificationLyric(item.notification.extras)?.let { item.packageName to it }
         }.toMap()
-        notificationArtwork = mediaNotifications.mapNotNull { item ->
+        val nextArtwork = mediaNotifications.mapNotNull { item ->
             encodeNotificationArtwork(context, item)?.let { item.packageName to it }
         }.toMap()
+        if (nextArtwork != notificationArtwork) {
+            notificationArtwork = nextArtwork
+            cachedArtworkKey = ""
+            cachedArtwork = ""
+        }
         safeRefresh("notification")
     }
 
@@ -262,10 +274,11 @@ object SystemMediaMonitor {
     } catch (_: Exception) { packageName }
 
     private fun artworkFor(packageName: String, title: String, metadata: MediaMetadata?): String {
-        val key = packageName + "|" + title
+        val notificationArt = notificationArtwork[packageName].orEmpty()
+        val key = packageName + "|" + title + "|" + notificationArt.hashCode()
         if (key == cachedArtworkKey) return cachedArtwork
         cachedArtworkKey = key
-        cachedArtwork = encodeArtwork(metadata) .ifBlank { notificationArtwork[packageName].orEmpty() }
+        cachedArtwork = encodeArtwork(metadata).ifBlank { encodeArtworkUri(metadata) }.ifBlank { notificationArt }
         return cachedArtwork
     }
 
@@ -308,8 +321,8 @@ object SystemMediaMonitor {
                 LyricLine(match.groupValues[1].toLong() * 60_000 + match.groupValues[2].toLong() * 1000 + millis, text)
             }
         }.sortedBy { it.startMs }.toList()
-        if (parsed.isNotEmpty()) return parsed.take(120)
-        return raw.lines().map(String::trim).filter(String::isNotBlank).distinct().take(80).map { LyricLine(null, it) }
+        if (parsed.isNotEmpty()) return parsed
+        return raw.lines().map(String::trim).filter(String::isNotBlank).distinct().map { LyricLine(null, it) }
     }
 
     private fun activeLyricIndex(lines: List<LyricLine>, position: Long): Int {
@@ -321,13 +334,32 @@ object SystemMediaMonitor {
         val bitmap = metadata.bitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: metadata.bitmap(MediaMetadata.METADATA_KEY_ART)
             ?: metadata.bitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+            ?: runCatching { metadata?.description?.iconBitmap }.getOrNull()
             ?: return ""
         return encodeBitmap(bitmap)
     }
 
+    private fun encodeArtworkUri(metadata: MediaMetadata?): String {
+        val value = metadata.text(
+            MediaMetadata.METADATA_KEY_ALBUM_ART_URI,
+            MediaMetadata.METADATA_KEY_ART_URI,
+            MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI,
+        ).ifBlank { runCatching { metadata?.description?.iconUri?.toString() }.getOrNull().orEmpty() }
+        if (value.isBlank()) return ""
+        val resolver = appContext?.contentResolver ?: return ""
+        return runCatching {
+            resolver.openInputStream(Uri.parse(value))?.use { stream ->
+                android.graphics.BitmapFactory.decodeStream(stream)?.let(::encodeBitmap)
+            }.orEmpty()
+        }.getOrElse {
+            Log.w(TAG, "Unable to read artwork URI", it)
+            ""
+        }
+    }
+
     private fun encodeBitmap(bitmap: Bitmap): String {
         return try {
-            val candidates = listOf(160 to 90, 144 to 88, 128 to 86, 112 to 82, 96 to 78)
+            val candidates = listOf(256 to 90, 240 to 88, 230 to 86, 220 to 84, 208 to 82, 196 to 80)
             var best = ""
             for ((edge, quality) in candidates) {
                 val scale = minOf(1f, edge.toFloat() / maxOf(bitmap.width, bitmap.height))
@@ -338,9 +370,13 @@ object SystemMediaMonitor {
                 scaled.compress(Bitmap.CompressFormat.JPEG, quality, output)
                 if (scaled !== bitmap) scaled.recycle()
                 best = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
-                if (best.length <= 9000) break
+                if (best.length + "data:image/jpeg;base64,".length <= MAX_ARTWORK_DATA_URI_CHARS) break
             }
-            "data:image/jpeg;base64," + best
+            val value = "data:image/jpeg;base64," + best
+            if (value.length <= MAX_ARTWORK_DATA_URI_CHARS) value else {
+                CommunicationLog.warn("MEDIA", "封面压缩后仍超限 chars=${value.length}")
+                ""
+            }
         } catch (error: Throwable) { Log.w(TAG, "Unable to encode album art", error); CommunicationLog.error("MEDIA", "artwork encoding failed", error); "" }
     }
 
@@ -381,15 +417,33 @@ object SystemMediaMonitor {
         )
         for (key in bitmapKeys) {
             @Suppress("DEPRECATION")
-            val bitmap = extras.get(key) as? Bitmap
+            val value = extras.get(key)
+            val bitmap = when (value) {
+                is Bitmap -> value
+                is Icon -> runCatching { drawableToBitmap(value.loadDrawable(context)) }.getOrNull()
+                is BitmapDrawable -> value.bitmap
+                else -> null
+            }
             if (bitmap != null) return encodeBitmap(bitmap).takeIf(String::isNotBlank)
         }
         return try {
             val icon = item.notification.getLargeIcon() ?: item.notification.smallIcon
-            (icon?.loadDrawable(context) as? BitmapDrawable)?.bitmap?.let(::encodeBitmap)?.takeIf(String::isNotBlank)
+            drawableToBitmap(icon?.loadDrawable(context))?.let(::encodeBitmap)?.takeIf(String::isNotBlank)
         } catch (error: Throwable) {
             Log.w(TAG, "Unable to read notification artwork", error)
             null
+        }
+    }
+
+    private fun drawableToBitmap(drawable: Drawable?): Bitmap? {
+        if (drawable == null) return null
+        if (drawable is BitmapDrawable) return drawable.bitmap
+        val width = drawable.intrinsicWidth.coerceAtLeast(1)
+        val height = drawable.intrinsicHeight.coerceAtLeast(1)
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, canvas.width, canvas.height)
+            drawable.draw(canvas)
         }
     }
 }

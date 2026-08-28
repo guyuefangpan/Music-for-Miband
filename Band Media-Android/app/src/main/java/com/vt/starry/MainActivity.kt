@@ -3,6 +3,8 @@ package com.vt.starry
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.Manifest
+import android.content.pm.PackageManager
 import android.provider.Settings
 import android.util.Base64
 import androidx.activity.ComponentActivity
@@ -11,7 +13,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -51,6 +55,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val bridge = WearBridge.get(this)
         ContextCompat.startForegroundService(this, Intent(this, MediaSyncService::class.java))
+        if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+        }
         setContent {
             val media by SystemMediaMonitor.state.collectAsState()
             val wear by bridge.state.collectAsState()
@@ -61,19 +68,46 @@ class MainActivity : ComponentActivity() {
                 Scaffold(containerColor = AppBackground, bottomBar = {
                     NavigationBar(containerColor = Panel) {
                         NavigationBarItem(page == 0, { page = 0 }, { Icon(Icons.Default.MusicNote, null) }, label = { Text("正在播放") })
-                        NavigationBarItem(page == 1, { page = 1 }, { Icon(Icons.Default.GraphicEq, null) }, label = { Text("通信日志") })
-                        NavigationBarItem(page == 2, { page = 2 }, { Icon(Icons.Default.Settings, null) }, label = { Text("设置") })
+                        NavigationBarItem(page == 1, { page = 1 }, { Icon(Icons.Default.Lyrics, null) }, label = { Text("歌词") })
+                        NavigationBarItem(page == 2, { page = 2 }, { Icon(Icons.Default.GraphicEq, null) }, label = { Text("日志") })
+                        NavigationBarItem(page == 3, { page = 3 }, { Icon(Icons.Default.Settings, null) }, label = { Text("设置") })
                     }
                 }) { padding ->
                     Surface(Modifier.fillMaxSize().padding(padding), color = AppBackground) {
                         when (page) {
                             0 -> NowPlayingPage(media, permission)
-                            1 -> LogPage(logs)
+                            1 -> LyricsPage(media)
+                            2 -> LogPage(logs)
                             else -> SettingsPage(wear, permission,
                                 { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                                 bridge::start, bridge::stop)
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LyricsPage(media: SystemMediaState) {
+    val listState = rememberLazyListState()
+    val active = media.activeLyricIndex.coerceIn(0, (media.lyrics.size - 1).coerceAtLeast(0))
+    LaunchedEffect(active, media.lyrics.size) {
+        if (media.lyrics.isNotEmpty() && !listState.isScrollInProgress) {
+            listState.animateScrollToItem(active, scrollOffset = -220)
+        }
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp)) {
+        Text(media.title.ifBlank { "歌词" }, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(media.artist.ifBlank { "暂无播放" }, color = Muted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(12.dp))
+        if (media.lyrics.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("当前媒体未提供歌词", color = Muted) }
+        } else {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 180.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                itemsIndexed(media.lyrics) { index, line ->
+                    Text(line.text, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), color = if (index == active) Color.White else Muted.copy(alpha = 0.62f), fontSize = if (index == active) 21.sp else 16.sp, fontWeight = if (index == active) FontWeight.Bold else FontWeight.Normal, lineHeight = 28.sp, textAlign = TextAlign.Center)
                 }
             }
         }

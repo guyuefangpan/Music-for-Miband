@@ -2,6 +2,7 @@ import storage from "@system.storage"
 import interconnect from "@system.interconnect"
 
 export const MEDIA_STATE_KEY = "bandmedia_media_state_v1"
+export const LYRICS_KEY = "bandmedia_lyrics_v1"
 export const CONTROL_COMMAND_KEY = "bandmedia_control_command_v1"
 export const CONNECTION_KEY = "starry_interconnect_seen_v1"
 const conn = interconnect.instance()
@@ -14,12 +15,25 @@ export function readMediaState(success, fail) {
       success: data => {
         try {
           const source = typeof data === "string" ? JSON.parse(data) : data
-          success(normalizeState(source || {}, connected))
+          const media = source || {}
+          storage.get({
+            key: LYRICS_KEY,
+            success: lyricsData => {
+              try {
+                const lyricsSource = typeof lyricsData === "string" ? JSON.parse(lyricsData) : lyricsData
+                if (lyricsSource && String(lyricsSource.id || "") === String(media.lyricsId || "")) media.lyrics = Array.isArray(lyricsSource.lines) ? lyricsSource.lines : []
+              } catch (error) {}
+              success(normalizeMediaState(media, connected))
+            },
+            fail: () => success(normalizeMediaState(media, connected)),
+            complete: () => {}
+          })
         } catch (error) { fail && fail(error) }
       },
-      fail: () => success(normalizeState({}, connected))
+      fail: () => success(normalizeMediaState({}, connected)),
+      complete: () => {}
     })
-  }, fail })
+  }, fail: () => { if (fail) fail() }, complete: () => {} })
 }
 
 export function sendControlCommand(action, value) {
@@ -27,12 +41,13 @@ export function sendControlCommand(action, value) {
     conn.send({
       data: { type: "control", action, value, requestId: String(Date.now()) },
       success: () => {},
-      fail: () => {}
+      fail: () => {},
+      complete: () => {}
     })
   } catch (error) {}
 }
 
-function normalizeState(source, connected) {
+export function normalizeMediaState(source, connected) {
   const durationMs = numberValue(source.durationMs)
   const positionMs = numberValue(source.positionMs)
   const volumeValid = source.volume !== undefined && source.volume !== null && !isNaN(Number(source.volume))
@@ -45,6 +60,9 @@ function normalizeState(source, connected) {
     albumArt: source.albumArt || "",
     lyrics: Array.isArray(source.lyrics) ? source.lyrics : [],
     activeLyricIndex: numberValue(source.activeLyricIndex),
+    activeLyric: source.activeLyric || "",
+    lyricWindow: Array.isArray(source.lyricWindow) ? source.lyricWindow : [],
+    lyricWindowActiveIndex: numberValue(source.lyricWindowActiveIndex),
     playbackState: source.playbackState || "stopped",
     playing: source.playbackState === "playing",
     volume: Math.max(0, Math.min(100, numberValue(source.volume))),

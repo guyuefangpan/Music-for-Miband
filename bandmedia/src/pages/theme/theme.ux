@@ -32,11 +32,11 @@ export default {
     this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2)
   },
   loadTheme() {
-    storage.get({ key: THEME_KEY, success: value => { if (value === "cover" || value === "day" || value === "night") this.theme = value } })
+    storage.get({ key: THEME_KEY, success: value => { if (value === "cover" || value === "day" || value === "night") this.theme = value }, fail: () => {}, complete: () => {} })
   },
   saveTheme(value) {
     this.theme = value
-    storage.set({ key: THEME_KEY, value })
+    storage.set({ key: THEME_KEY, value, success: () => {}, fail: () => {}, complete: () => {} })
   },
   selectCover() { this.saveTheme("cover") },
   selectDay() { this.saveTheme("day") },

@@ -20,6 +20,12 @@
     },
     {
       "name": "system.interconnect"
+    },
+    {
+      "name": "system.file"
+    },
+    {
+      "name": "system.brightness"
     }
   ],
   "config": {

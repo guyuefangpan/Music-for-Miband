@@ -29,7 +29,7 @@ export default {
     this.timer = setInterval(() => this.load(), 1000)
   },
   detectDevice() {
-    device.getInfo({success: info => { const width = info.screenWidth || info.width || info.windowWidth; const height = info.screenHeight || info.height || info.windowHeight; this.isRing10 = Number(width) === 212 && Number(height) === 520 }})
+    device.getInfo({success: info => { const width = info.screenWidth || info.width || info.windowWidth; const height = info.screenHeight || info.height || info.windowHeight; this.isRing10 = Number(width) === 212 && Number(height) === 520 }, fail: () => {}, complete: () => {}})
   },
   onDestroy() {
     if (this.timer) clearInterval(this.timer)
