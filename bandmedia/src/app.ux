@@ -1,9 +1,214 @@
 <script>
+import storage from "@system.storage"
+import interconnect from "@system.interconnect"
+
+const STORAGE_READ = "bandmediaStorageRead"
+const STORAGE_READ_RESULT = "bandmediaStorageReadResult"
+const STORAGE_WRITE = "bandmediaStorageWrite"
+const STORAGE_WRITE_RESULT = "bandmediaStorageWriteResult"
+const HANDSHAKE = "__hs__"
+const HEARTBEAT = "heartbeat"
+const HEARTBEAT_ACK = "heartbeatAck"
+const MEDIA_STATE_KEY = "bandmedia_media_state_v1"
+const CONNECTION_KEY = "starry_interconnect_seen_v1"
+
 export default {
   onCreate() {
+    this.chunks = {}
+    this.connected = false
+    this.lastMusicRequestAt = 0
+    this.lastConnectionMark = 0
+    this.handshakeSent = false
+    this.destroyed = false
+    this.storageBusy = false
+    this.pendingMediaState = null
+    this.lastStoredMediaKey = ""
+    this.lastMediaState = null
+    this.albumArtChunks = {}
+    this.conn = interconnect.instance()
+    this.conn.onmessage = messageObj => {
+      if (!this.destroyed) this.handleAndroidMessage(messageObj && messageObj.data !== undefined ? messageObj.data : messageObj)
+    }
+    this.conn.onopen = () => {
+      if (this.destroyed) return
+      this.connected = true
+      this.markConnected(true)
+    }
+    this.conn.onclose = () => {
+      if (this.destroyed) return
+      this.connected = false
+      this.handshakeSent = false
+      this.markConnected(false)
+    }
+    this.conn.onerror = () => {
+      if (this.destroyed) return
+      this.connected = false
+      this.handshakeSent = false
+      this.markConnected(false)
+    }
+    this.checkConnection()
     console.log("app created")
   },
+  checkConnection() {
+    if (this.destroyed || !this.conn || typeof this.conn.diagnosis !== "function") return
+    try {
+      this.conn.diagnosis({
+        success: data => {
+          if (this.destroyed) return
+          const status = data && String(data.status || "").toUpperCase()
+          if (status === "CONNECTED" || status === "OPEN") {
+            this.connected = true
+            this.markConnected(true)
+          }
+        },
+        fail: () => {}
+      })
+    } catch (error) {}
+  },
+  handleAndroidMessage(data) {
+    let message = data
+    if (typeof data === "string") {
+      try { message = JSON.parse(data) } catch (error) { return }
+    }
+    if (!message) return
+    if (message.__c) {
+      const id = String(message.id || "")
+      const total = Number(message.t || 0)
+      const index = Number(message.i)
+      if (!id || total < 1 || total > 128 || index < 0 || index >= total) return
+      let group = this.chunks[id]
+      if (!group || group.total !== total) {
+        group = { total: total, count: 0, parts: [] }
+        this.chunks[id] = group
+      }
+      if (typeof group.parts[index] !== "string") group.count += 1
+      group.parts[index] = String(message.d || "")
+      if (group.count === total) {
+        const joined = group.parts.join("")
+        delete this.chunks[id]
+        this.handleAndroidMessage(joined)
+      }
+      return
+    }
+    if (!message.type) return
+    if (message.type === "album_art") { this.handleAlbumArt(message); return }
+    if (message.type === HANDSHAKE) {
+      this.markConnected(true)
+      this.connected = true
+      const count = Number(message.count)
+      if (count >= 0 && count < 2) this.sendHandshake(count + 1)
+      this.requestMusicOnce()
+    } else if (message.type === HEARTBEAT) {
+      this.markConnected(true)
+      this.send({ type: HEARTBEAT_ACK, timestamp: Date.now() })
+    } else if (message.type === HEARTBEAT_ACK) {
+      this.markConnected(true)
+    } else if (message.type === "music_info") {
+      const state = this.safeMediaState(message)
+      this.lastMediaState = state
+      this.persistMediaState(state)
+      this.markConnected(true)
+    } else if (message.type === "music_clear") {
+      storage.set({ key: MEDIA_STATE_KEY, value: JSON.stringify({ version: 1, title: "", artist: "", playbackState: "stopped", updatedAt: Date.now() }), success: () => {}, fail: () => {} })
+      this.lastMediaState = null
+      this.markConnected(true)
+    } else if (message.type === STORAGE_READ) {
+      storage.get({ key: message.key, success: value => this.send({ type: STORAGE_READ_RESULT, key: message.key, value: typeof value === "string" ? value : JSON.stringify(value || {}), requestId: message.requestId }), fail: () => this.send({ type: STORAGE_READ_RESULT, key: message.key, value: "", requestId: message.requestId, error: true }) })
+    } else if (message.type === STORAGE_WRITE) {
+      storage.set({ key: message.key, value: message.value, success: () => this.send({ type: STORAGE_WRITE_RESULT, key: message.key, requestId: message.requestId, ok: true }), fail: () => this.send({ type: STORAGE_WRITE_RESULT, key: message.key, requestId: message.requestId, ok: false }) })
+    }
+  },
+  handleAlbumArt(message) {
+    const id = String(message.key || "")
+    const total = Number(message.t || 0)
+    const index = Number(message.i)
+    if (!id || total < 1 || total > 3 || index < 0 || index >= total) return
+    if (!this.lastMediaState || this.lastMediaState.mediaKey !== id) return
+    let group = this.albumArtChunks[id]
+    if (!group || group.total !== total) { group = { total: total, count: 0, parts: [] }; this.albumArtChunks[id] = group }
+    if (typeof group.parts[index] !== "string") group.count += 1
+    group.parts[index] = String(message.d || "")
+    if (group.count !== total) return
+    delete this.albumArtChunks[id]
+    this.lastMediaState.albumArt = group.parts.join("")
+    this.persistMediaState(this.lastMediaState)
+  },
+  send(message) {
+    if (this.destroyed || !this.connected || !this.conn || !message) return
+    try {
+      this.conn.send({ data: message, success: () => {}, fail: () => { this.connected = false; this.markConnected(false) } })
+    } catch (error) {
+      this.connected = false
+      this.markConnected(false)
+    }
+  },
+  sendHandshake(count) {
+    if (this.handshakeSent && count === 0) return
+    this.handshakeSent = true
+    this.send({ type: HANDSHAKE, count: count, version: 1 })
+  },
+  requestMusicOnce() {
+    const now = Date.now()
+    if (now - this.lastMusicRequestAt < 3000) return
+    this.lastMusicRequestAt = now
+    this.send({ type: "get_music" })
+  },
+  persistMediaState(state) {
+    if (this.destroyed) return
+    const key = [state.title, state.artist, state.album, state.albumArt || "", state.playbackState, state.durationMs, state.lyrics.length].join("|")
+    this.pendingMediaState = state
+    if (this.storageBusy) return
+    if (key === this.lastStoredMediaKey) return
+    this.storageBusy = true
+    this.lastStoredMediaKey = key
+    const value = JSON.stringify(state)
+    storage.set({ key: MEDIA_STATE_KEY, value: value, success: () => { this.storageBusy = false; this.flushMediaState() }, fail: () => { this.storageBusy = false; this.flushMediaState() } })
+  },
+  flushMediaState() {
+    if (this.pendingMediaState) {
+      const next = this.pendingMediaState
+      this.pendingMediaState = null
+      this.persistMediaState(next)
+    }
+  },
+  safeMediaState(message) {
+    const state = {
+      version: 1,
+      type: "music_info",
+      title: String(message.title || "").slice(0, 160),
+      artist: String(message.artist || "").slice(0, 160),
+      album: String(message.album || "").slice(0, 160),
+      playbackState: String(message.playbackState || (Number(message.state) === 1 ? "playing" : "paused")),
+      positionMs: Number(message.positionMs) || 0,
+      durationMs: Number(message.durationMs) || 0,
+      volume: Number(message.volume) || 0,
+      muted: message.muted === true,
+      activeLyricIndex: Number(message.activeLyricIndex) || -1,
+      sourcePackage: String(message.sourcePackage || "").slice(0, 160),
+      sourceName: String(message.sourceName || "").slice(0, 160),
+      updatedAt: Date.now(),
+      lyrics: []
+    }
+    state.mediaKey = String(message.mediaKey || "")
+    const lyrics = message.lyrics
+    if (Array.isArray(lyrics)) {
+      for (let i = 0; i < lyrics.length && i < 40; i++) {
+        const line = lyrics[i]
+      if (line && String(line.text || "").length <= 160) state.lyrics.push({ startMs: Number(line.startMs) || 0, text: String(line.text || "") })
+      }
+    }
+    return state
+  },
+  markConnected(connected) {
+    const now = Date.now()
+    if (connected && now - this.lastConnectionMark < 3000) return
+    this.lastConnectionMark = now
+    storage.set({ key: CONNECTION_KEY, value: connected ? String(now) : "0", success: () => {}, fail: () => {} })
+  },
   onDestroy() {
+    this.destroyed = true
+    this.connected = false
+    this.handshakeSent = false
     console.log("app destroyed")
   }
 }

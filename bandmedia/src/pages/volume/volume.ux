@@ -22,7 +22,7 @@ import router from "@system.router"
 import device from "@system.device"
 import {readMediaState, sendControlCommand} from "../../common/media-sync.js"
 export default {
-  private: {volume: 0, volumeHeight: 0, ringVolumeHeight: 0, isRing10: false},
+  private: {volume: 0, volumeHeight: 0, ringVolumeHeight: 0, isRing10: false, volumeReady: false},
   onInit() {
     this.detectDevice()
     this.load()
@@ -37,6 +37,8 @@ export default {
   load() {
     readMediaState(
       (m) => {
+        if (!m.volumeValid) return
+        this.volumeReady = true
         this.volume = m.volume
         this.volumeHeight = Math.round(m.volume * 2.45)
         this.ringVolumeHeight = Math.round(m.volume * 2.05)
@@ -45,18 +47,12 @@ export default {
     )
   },
   increase() {
-    const next = Math.min(100, this.volume + 5)
-    this.volume = next
-    this.volumeHeight = Math.round(next * 2.45)
-    this.ringVolumeHeight = Math.round(next * 2.05)
-    sendControlCommand("setVolume", next)
+    if (!this.volumeReady) return
+    sendControlCommand("volume_up")
   },
   decrease() {
-    const next = Math.max(0, this.volume - 5)
-    this.volume = next
-    this.volumeHeight = Math.round(next * 2.45)
-    this.ringVolumeHeight = Math.round(next * 2.05)
-    sendControlCommand("setVolume", next)
+    if (!this.volumeReady) return
+    sendControlCommand("volume_down")
   },
   back() {
     router.back()

@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.BandMedia" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#1DB954</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#0E0E12</item>
+        <item name="android:navigationBarColor">#1C1C24</item>
+    </style>
+</resources>

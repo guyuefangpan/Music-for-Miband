@@ -1,44 +1,46 @@
 import storage from "@system.storage"
+import interconnect from "@system.interconnect"
 
 export const MEDIA_STATE_KEY = "bandmedia_media_state_v1"
 export const CONTROL_COMMAND_KEY = "bandmedia_control_command_v1"
+export const CONNECTION_KEY = "starry_interconnect_seen_v1"
+const conn = interconnect.instance()
 
 export function readMediaState(success, fail) {
-  storage.get({
-    key: MEDIA_STATE_KEY,
-    success: data => {
-      try {
-        const source = typeof data === "string" ? JSON.parse(data) : data
-        success(normalizeState(source || {}))
-      } catch (error) {
-        fail && fail(error)
-      }
-    },
-    fail
-  })
+  storage.get({ key: CONNECTION_KEY, success: seen => {
+    const connected = Number(seen || 0) > 0 && Date.now() - Number(seen) < 15000
+    storage.get({
+      key: MEDIA_STATE_KEY,
+      success: data => {
+        try {
+          const source = typeof data === "string" ? JSON.parse(data) : data
+          success(normalizeState(source || {}, connected))
+        } catch (error) { fail && fail(error) }
+      },
+      fail: () => success(normalizeState({}, connected))
+    })
+  }, fail })
 }
 
 export function sendControlCommand(action, value) {
-  storage.set({
-    key: CONTROL_COMMAND_KEY,
-    value: JSON.stringify({
-      version: 1,
-      action,
-      value,
-      requestId: String(Date.now()),
-      createdAt: Date.now()
+  try {
+    conn.send({
+      data: { type: "control", action, value, requestId: String(Date.now()) },
+      success: () => {},
+      fail: () => {}
     })
-  })
+  } catch (error) {}
 }
 
-function normalizeState(source) {
+function normalizeState(source, connected) {
   const durationMs = numberValue(source.durationMs)
   const positionMs = numberValue(source.positionMs)
+  const volumeValid = source.volume !== undefined && source.volume !== null && !isNaN(Number(source.volume))
   const progress = durationMs > 0 ? Math.min(1, positionMs / durationMs) : 0
   return {
     version: source.version || 1,
-    title: source.title || "等待同步",
-    artist: source.artist || "未知艺人",
+    title: source.title || (connected ? "暂无播放" : "等待同步"),
+    artist: source.artist || (connected ? "请在手机上播放音乐" : "Android 同步器"),
     album: source.album || "",
     albumArt: source.albumArt || "",
     lyrics: Array.isArray(source.lyrics) ? source.lyrics : [],
@@ -46,6 +48,7 @@ function normalizeState(source) {
     playbackState: source.playbackState || "stopped",
     playing: source.playbackState === "playing",
     volume: Math.max(0, Math.min(100, numberValue(source.volume))),
+    volumeValid,
     muted: source.muted === true,
     durationMs,
     positionMs,
@@ -57,7 +60,7 @@ function normalizeState(source) {
     ringProgressKnobLeft: Math.round(115 * progress),
     hasProgress: durationMs > 0 && positionMs > 0,
     updatedAt: numberValue(source.updatedAt)
-    ,connectionState: source.updatedAt && Date.now() - numberValue(source.updatedAt) < 10000 ? "已连接" : "未连接"
+    ,connectionState: connected ? "已连接" : "未连接"
   }
 }
 

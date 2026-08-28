@@ -1,6 +1,6 @@
 {
-  "package": "com.band.media",
-  "name": "Band Media",
+  "package": "com.vt.starry",
+  "name": "Starry",
   "versionName": "1.0.0",
   "versionCode": 1,
   "minPlatformVersion": 1000,
@@ -17,6 +17,9 @@
     },
     {
       "name": "system.device"
+    },
+    {
+      "name": "system.interconnect"
     }
   ],
   "config": {
@@ -37,6 +40,12 @@
       },
       "pages/settings": {
         "component": "settings"
+      },
+      "pages/theme": {
+        "component": "theme"
+      },
+      "pages/debug": {
+        "component": "debug"
       },
       "pages/about": {
         "component": "about"

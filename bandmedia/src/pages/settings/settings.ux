@@ -1,27 +1,57 @@
 <template>
   <div class="settings-page">
-    <text class="clock">{{clock}}</text>
-    <text class="page-title">设置</text>
-    <div class="setting-row" onclick="refreshConnection"><div class="status-dot"></div><text class="row-text">连接状态:{{connectionState}}</text></div>
-    <div class="setting-row"><div class="status-dot"></div><text class="row-text">主题:深色</text></div>
-    <div class="setting-row"><div class="status-dot"></div><text class="row-text">屏幕方向:竖</text></div>
-    <div class="setting-row" onclick="routeAbout"><div class="status-dot"></div><text class="row-text">关于</text></div>
-    <div class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div>
+    <div class="top-bar">
+      <div class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div>
+      <text class="page-title">设置</text>
+      <text class="clock">{{clock}}</text>
+    </div>
+    <scroll class="settings-scroll" scroll-y="true">
+      <div class="settings-content">
+        <div class="top-space"></div>
+        <div class="setting-slot"><div class="debug-card" onclick="routeDebug"><div class="debug-icon"><text class="debug-icon-text">D</text></div><text class="row-text">Debug</text></div></div>
+        <div class="setting-slot"><div class="interface-card" onclick="routeInterface"><image class="setting-icon" src="/common/settings-interface.png"></image><text class="row-text">界面</text></div></div>
+        <div class="setting-slot"><div class="theme-card" onclick="routeTheme"><image class="setting-icon" src="/common/settings-theme.png"></image><text class="row-text">主题</text></div></div>
+        <div class="setting-slot"><div class="lyrics-card" onclick="routeLyrics"><image class="setting-icon" src="/common/settings-lyrics.png"></image><text class="row-text">歌词</text></div></div>
+        <div class="setting-slot"><div class="about-card" onclick="routeAbout"><image class="setting-icon" src="/common/settings-about.png"></image><text class="row-text">关于</text></div></div>
+        <div class="bottom-space"></div>
+      </div>
+    </scroll>
   </div>
 </template>
 <script>
 import router from "@system.router"
-import { readMediaState } from "../../common/media-sync.js"
 export default {
-  private: { clock: "--:--", connectionState: "检测中" },
-  onInit() { this.refreshClock(); this.refreshConnection(); this.timer = setInterval(() => { this.refreshClock(); this.refreshConnection() }, 1000) },
+  private: { clock: "--:--" },
+  onInit() { this.refreshClock(); this.timer = setInterval(() => this.refreshClock(), 1000) },
   onDestroy() { if (this.timer) clearInterval(this.timer) },
   refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
-  refreshConnection() { readMediaState(m => { this.connectionState = m.connectionState }, () => { this.connectionState = "未连接" }) },
+  routeInterface() {},
+  routeDebug() { router.push({ uri: "/pages/debug" }) },
+  routeTheme() { router.push({ uri: "/pages/theme" }) },
+  routeLyrics() { router.push({ uri: "/pages/detail" }) },
   routeAbout() { router.push({ uri: "/pages/about" }) },
   back() { router.back() }
 }
 </script>
 <style>
-text,input{font-family:MiSans,sans-serif}.settings-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;flex-direction:column;align-items:center}.page-title{margin-top:31px;color:#fff;font-size:30px;font-weight:500;line-height:36px}.clock{position:absolute;right:36px;top:30px;width:58px;color:#f2f2f2;font-size:17px;text-align:right;line-height:22px}.setting-row{width:304px;height:88px;margin-top:12px;border-radius:28px;background-color:#303030;align-items:center}.status-dot{width:60px;height:60px;margin-left:13px;border-radius:30px;background-color:#7195b8}.row-text{margin-left:10px;color:#fff;font-size:27px;font-weight:400;line-height:34px;lines:1;text-overflow:ellipsis}.back-button{position:absolute;left:8px;top:8px;width:58px;height:54px;align-items:center;justify-content:center}.back-icon{width:40px;height:40px}
+text,input{font-family:MiSans,sans-serif}
+.settings-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;overflow:hidden}
+.top-bar{position:absolute;left:0;top:0;width:336px;height:78px;background-color:#000}
+.back-button{position:absolute;left:8px;top:8px;width:68px;height:62px;align-items:center;justify-content:center}
+.back-icon{width:40px;height:40px}
+.page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}
+.clock{position:absolute;right:36px;top:30px;width:58px;color:#f2f2f2;font-size:17px;font-weight:500;line-height:22px;text-align:right}
+.settings-scroll{position:absolute;left:0;top:78px;width:336px;height:402px}
+.settings-content{width:336px;height:540px;flex-direction:column;align-items:center}
+.debug-icon{width:60px;height:60px;margin-left:13px;border-radius:30px;background-color:#719ff0;align-items:center;justify-content:center}.debug-icon-text{color:#fff;font-size:29px;font-weight:500;line-height:38px}
+.top-space{width:336px;height:12px;flex-shrink:0}
+.setting-slot{width:336px;height:100px;align-items:flex-start;justify-content:center;flex-shrink:0}
+.debug-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
+.interface-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
+.theme-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
+.lyrics-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
+.about-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
+.setting-icon{width:60px;height:60px;margin-left:13px}
+.row-text{margin-left:10px;color:#fff;font-size:29px;font-weight:400;line-height:38px;lines:1}
+.bottom-space{width:336px;height:16px}
 </style>
