@@ -1,0 +1,67 @@
+<template>
+  <div class="watch-page">
+    <div if="{{!isRing10}}" class="standard-lyrics">
+      <div class="top"><text class="song">{{song}}</text><text class="artist">{{artist}}</text></div>
+      <text class="time">{{clock}}</text>
+      <div class="lyrics"><text for="lyrics" class="lyric-line" tid="text" style="color:{{$item.active ? '#ffffff' : '#666666'}}">{{$item.text}}</text><text if="{{!lyrics.length}}" class="empty">等待 Android 同步器提供歌词</text></div>
+      <div class="back-btn" onclick="routePlayer"><image class="back-icon" src="/common/back.png"></image></div>
+    </div>
+    <div if="{{isRing10}}" class="ring-lyrics-page">
+      <text class="ring-lyric ring-previous-line">{{previousLyric}}</text>
+      <text class="ring-lyric ring-active-line">{{activeLyric}}</text>
+      <text class="ring-lyric ring-next-line">{{nextLyric}}</text>
+      <div class="ring-back" onclick="routePlayer"><image class="ring-back-icon" src="/common/back.png"></image></div>
+    </div>
+  </div>
+</template>
+
+<script>
+import router from "@system.router"
+import device from "@system.device"
+import { readMediaState } from "../../common/media-sync.js"
+
+export default {
+  private: { song: "等待同步", artist: "Android 同步器", lyrics: [], clock: "--:--", isRing10: false, previousLyric: "", activeLyric: "等待 Android 同步器提供歌词", nextLyric: "" },
+  onInit() { this.detectDevice(); this.refreshClock(); this.loadSyncData(); this.timer = setInterval(() => { this.refreshClock(); this.loadSyncData() }, 1000) },
+  onDestroy() { if (this.timer) clearInterval(this.timer) },
+  refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
+  detectDevice() { device.getInfo({ success: info => { const width = info.screenWidth || info.width || info.windowWidth; const height = info.screenHeight || info.height || info.windowHeight; this.isRing10 = Number(width) === 212 && Number(height) === 520 } }) },
+  loadSyncData() { readMediaState(m => { const lines = m.lyrics.map((line, index) => ({ text: typeof line === "string" ? line : line.text, active: index === m.activeLyricIndex })); this.song = m.title; this.artist = m.artist; this.lyrics = lines; this.previousLyric = lines[m.activeLyricIndex - 1] ? lines[m.activeLyricIndex - 1].text : ""; this.activeLyric = lines[m.activeLyricIndex] ? lines[m.activeLyricIndex].text : "等待 Android 同步器提供歌词"; this.nextLyric = lines[m.activeLyricIndex + 1] ? lines[m.activeLyricIndex + 1].text : "" }, () => {}) },
+
+  routePlayer() {
+    router.push({
+      uri: "/pages/index"
+    })
+  }
+}
+</script>
+
+<style>
+text,input { font-family: MiSans, sans-serif; }
+.watch-page {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background-color: #242424;
+  border-radius: 48px;
+  overflow: hidden;
+}
+.standard-lyrics { width:336px; height:480px; position:relative; background-color:#242424; border-radius:48px; overflow:hidden; }
+
+.top { margin-top:27px; flex-direction:column; align-items:center; }
+.song { color:#fff; font-size:21px; }
+.artist { color:#9a9a9a; font-size:13px; margin-top:4px; }
+.time { position:absolute; right:36px; top:30px; width:58px; color:#eee; font-size:17px; text-align:right; line-height:22px; }
+.lyrics { width:300px; margin-top:45px; flex-direction:column; align-items:center; }
+.lyric-line,.empty { width:300px; font-size:18px; text-align:center; line-height:25px; margin-bottom:10px; }
+.empty { color:#666; }
+.back-btn { width:64px; height:56px; position:absolute; left:7px; top:7px; align-items:center; justify-content:center; }
+.back-icon { width:40px; height:40px; }
+.ring-lyrics-page { width:212px; height:520px; position:relative; background-color:#6f96b7; border-radius:106px; overflow:hidden; }
+.ring-lyric { position:absolute; left:12px; width:188px; text-align:center; }
+.ring-previous-line { top:92px; color:#b1c6d7; font-size:19px; line-height:25px; }
+.ring-active-line { top:174px; color:#fff; font-size:20px; line-height:27px; font-weight:500; }
+.ring-next-line { top:316px; color:#adc3d5; font-size:19px; line-height:25px; }
+.ring-back { position:absolute; left:74px; bottom:18px; width:64px; height:56px; align-items:center; justify-content:center; }
+.ring-back-icon { width:40px; height:40px; }
+</style>

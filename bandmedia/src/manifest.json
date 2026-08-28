@@ -1,0 +1,46 @@
+{
+  "package": "com.band.media",
+  "name": "Band Media",
+  "versionName": "1.0.0",
+  "versionCode": 1,
+  "minPlatformVersion": 1000,
+  "icon": "/common/icon.png",
+  "deviceTypeList": [
+    "watch"
+  ],
+  "features": [
+    {
+      "name": "system.router"
+    },
+    {
+      "name": "system.storage"
+    },
+    {
+      "name": "system.device"
+    }
+  ],
+  "config": {
+    "logLevel": "log",
+    "designWidth": "device-width"
+  },
+  "router": {
+    "entry": "pages/index",
+    "pages": {
+      "pages/index": {
+        "component": "index"
+      },
+      "pages/detail": {
+        "component": "detail"
+      },
+      "pages/volume": {
+        "component": "volume"
+      },
+      "pages/settings": {
+        "component": "settings"
+      },
+      "pages/about": {
+        "component": "about"
+      }
+    }
+  }
+}

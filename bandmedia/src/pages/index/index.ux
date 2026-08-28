@@ -1,0 +1,164 @@
+<template>
+  <div class="player-page">
+    <div if="{{!isRing10}}" class="exit-button" onclick="exitApp"><image class="back-icon" src="/common/back.png"></image></div>
+    <text if="{{!isRing10}}" class="clock">{{clock}}</text>
+    <div if="{{!isRing10}}" class="metadata" onclick="routeLyrics">
+      <text class="song">{{song}}</text>
+      <text class="artist">{{artist}}</text>
+    </div>
+
+    <div if="{{!isRing10}}" class="cover-shell" onclick="routeLyrics">
+      <image if="{{albumArt}}" class="cover" src="{{albumArt}}"></image>
+      <div if="{{!albumArt}}" class="cover-empty">
+        <text class="cover-note">♪</text>
+        <text class="cover-label">{{album || song}}</text>
+      </div>
+    </div>
+
+    <div if="{{!isRing10}}" class="progress-row">
+      <text class="progress-time elapsed">{{elapsed}}</text>
+      <div class="progress-track">
+        <div if="{{hasProgress}}" class="progress-fill" style="width:{{progressWidth}}px"></div>
+        <div if="{{hasProgress}}" class="progress-knob" style="left:{{progressKnobLeft}}px"></div>
+      </div>
+      <text class="progress-time remaining">{{remaining}}</text>
+    </div>
+
+    <div if="{{!isRing10}}" class="control-row">
+      <div class="control-small" onclick="routeSettings"><image class="settings-icon" src="/common/setting.png"></image></div>
+      <div class="control-small" onclick="previous"><image class="previous-icon" src="/common/previous.png"></image></div>
+      <div class="control-play" onclick="togglePlayback">
+        <image if="{{!playing}}" class="play-icon" src="/common/play.png"></image>
+        <div if="{{playing}}" class="pause-icon"><div class="pause-bar"></div><div class="pause-bar"></div></div>
+      </div>
+      <div class="control-small" onclick="next"><image class="next-icon" src="/common/next.png"></image></div>
+      <div class="control-small" onclick="routeVolume"><image class="volume-icon" src="/common/volume.png"></image></div>
+    </div>
+
+    <div if="{{isRing10}}" class="ring-player">
+      <text class="ring-clock">{{clock}}</text>
+      <div class="ring-metadata" onclick="routeLyrics"><text class="ring-song">{{song}}</text><text class="ring-artist">{{artist}}</text></div>
+      <div class="ring-cover-shell" onclick="routeLyrics">
+        <image if="{{albumArt}}" class="ring-cover" src="{{albumArt}}"></image>
+        <div if="{{!albumArt}}" class="ring-cover-empty"><text class="ring-cover-note">♪</text></div>
+      </div>
+      <div class="ring-progress-row"><text class="ring-progress-time">{{elapsed}}</text><div class="ring-progress-track"><div if="{{hasProgress}}" class="ring-progress-fill" style="width:{{ringProgressWidth}}px"></div><div if="{{hasProgress}}" class="ring-progress-knob" style="left:{{ringProgressKnobLeft}}px"></div></div><text class="ring-progress-time ring-remaining">{{remaining}}</text></div>
+      <div class="ring-main-controls"><div class="ring-control" onclick="previous"><image class="ring-previous" src="/common/previous.png"></image></div><div class="ring-play" onclick="togglePlayback"><image if="{{!playing}}" class="ring-play-image" src="/common/play.png"></image><div if="{{playing}}" class="ring-pause"><div class="ring-pause-bar"></div><div class="ring-pause-bar"></div></div></div><div class="ring-control" onclick="next"><image class="ring-next" src="/common/next.png"></image></div></div>
+      <div class="ring-secondary-controls"><div class="ring-control" onclick="routeSettings"><image class="ring-settings" src="/common/setting.png"></image></div><div class="ring-control" onclick="routeVolume"><image class="ring-volume" src="/common/volume.png"></image></div></div>
+    </div>
+
+  </div>
+</template>
+
+<script>
+import router from "@system.router"
+import device from "@system.device"
+import { readMediaState, sendControlCommand } from "../../common/media-sync.js"
+
+export default {
+  private: {
+    playing: false,
+    muted: false,
+    song: "等待同步",
+    artist: "Android 同步器",
+    album: "",
+    albumArt: "",
+    elapsed: "00:00",
+    remaining: "--:--",
+    progressWidth: 0,
+    progressKnobLeft: 0,
+    hasProgress: false,
+    volume: 0,
+    playbackState: "未连接",
+    clock: "--:--",
+    syncState: "正在读取同步数据",
+    connectionState: "检测中"
+    ,isRing10: false,
+    ringProgressWidth: 0,
+    ringProgressKnobLeft: 0
+  },
+  onInit() {
+    this.detectDevice()
+    this.refreshClock()
+    this.loadSyncData()
+    this.timer = setInterval(() => {
+      this.refreshClock()
+      this.loadSyncData()
+    }, 1000)
+  },
+  detectDevice() {
+    device.getInfo({ success: info => { const width = info.screenWidth || info.width || info.windowWidth; const height = info.screenHeight || info.height || info.windowHeight; this.isRing10 = Number(width) === 212 && Number(height) === 520 } })
+  },
+  onDestroy() {
+    if (this.timer) clearInterval(this.timer)
+  },
+  refreshClock() {
+    const date = new Date()
+    this.clock = ("0" + date.getHours()).slice(-2) + ":" + ("0" + date.getMinutes()).slice(-2)
+  },
+  loadSyncData() {
+    readMediaState(media => {
+      this.song = media.title
+      this.artist = media.artist
+      this.album = media.album
+      this.albumArt = media.albumArt
+      this.elapsed = media.elapsed
+      this.remaining = media.remaining
+      this.progressWidth = media.progressWidth
+      this.progressKnobLeft = media.progressKnobLeft
+      this.ringProgressWidth = media.ringProgressWidth
+      this.ringProgressKnobLeft = media.ringProgressKnobLeft
+      this.hasProgress = media.hasProgress
+      this.volume = media.volume
+      this.playing = media.playing
+      this.muted = media.muted
+      this.playbackState = media.playbackState
+      this.syncState = "已同步"
+      this.connectionState = media.connectionState
+    }, () => {
+      this.syncState = "等待 Android 同步器"
+      this.connectionState = "未连接"
+    })
+  },
+  routeLyrics() { router.push({ uri: "/pages/detail" }) },
+  routeVolume() { router.push({ uri: "/pages/volume" }) },
+  routeSettings() { router.push({ uri: "/pages/settings" }) },
+  exitApp() { router.back() },
+  togglePlayback() {
+    sendControlCommand(this.playing ? "pause" : "play")
+    this.playing = !this.playing
+  },
+  previous() { sendControlCommand("previous") },
+  next() { sendControlCommand("next") },
+  toggleSettings() {}
+}
+</script>
+
+<style>
+text,input{font-family:MiSans,sans-serif}
+.player-page{width:100%;height:100%;position:relative;background-color:#242424;overflow:hidden}
+.clock{position:absolute;right:36px;top:30px;width:58px;color:#f2f2f2;font-size:17px;font-weight:500;text-align:right;line-height:22px}
+.exit-button{position:absolute;left:10px;top:8px;width:58px;height:54px;align-items:center;justify-content:center}.back-icon{width:40px;height:40px}
+.metadata{position:absolute;left:88px;top:27px;width:160px;height:48px;flex-direction:column;align-items:center}
+.song{width:160px;color:#fff;font-size:21px;font-weight:500;text-align:center;line-height:25px;lines:1;text-overflow:ellipsis}
+.artist{width:160px;margin-top:2px;color:#979797;font-size:13px;font-weight:400;text-align:center;line-height:17px;lines:1;text-overflow:ellipsis}
+.cover-shell{position:absolute;left:49px;top:94px;width:238px;height:238px;border-radius:119px;border-width:4px;border-color:#777;background-color:#2d2d2d;overflow:hidden;align-items:center;justify-content:center}
+.cover{width:230px;height:230px;border-radius:115px}
+.cover-empty{width:230px;height:230px;border-radius:115px;background-color:#266a9c;flex-direction:column;align-items:center;justify-content:center}
+.cover-note{color:#b9ddf5;font-size:72px;font-weight:400;line-height:82px}
+.cover-label{width:178px;margin-top:5px;color:#164a72;font-size:14px;text-align:center;lines:1;text-overflow:ellipsis}
+.progress-row{position:absolute;left:20px;top:352px;width:296px;height:30px;align-items:center}
+.progress-time{width:48px;height:22px;color:#fff;font-size:14px;font-weight:500;line-height:22px;lines:1;white-space:nowrap}
+.elapsed{text-align:left}.remaining{text-align:right}
+.progress-track{position:relative;width:198px;height:7px;margin-left:1px;margin-right:1px;border-radius:4px;background-color:#9b9b9b}
+.progress-fill{height:7px;border-radius:4px;background-color:#70b6e8}
+.progress-knob{position:absolute;top:-5px;width:17px;height:17px;border-radius:9px;border-width:2px;border-color:#fff;background-color:#70b6e8}
+.control-row{position:absolute;left:20px;top:388px;width:296px;height:62px;align-items:center;justify-content:space-between}
+.control-small{width:40px;height:52px;align-items:center;justify-content:center}
+.settings-icon{width:23px;height:23px}.previous-icon{width:20px;height:24px}.next-icon{width:20px;height:22px}.volume-icon{width:20px;height:20px}
+.control-play{width:62px;height:62px;align-items:center;justify-content:center}
+.play-icon{width:62px;height:62px}.pause-icon{width:62px;height:62px;border-radius:31px;border-width:2px;border-color:#fff;align-items:center;justify-content:center}.pause-bar{width:7px;height:27px;margin-left:4px;margin-right:4px;border-radius:3px;background-color:#fff}
+.settings-panel{position:absolute;left:20px;top:105px;width:296px;height:246px;border-radius:24px;background-color:#303030;flex-direction:column;align-items:center;padding-top:26px}
+.panel-title{color:#fff;font-size:20px;font-weight:500}.panel-state{margin-top:18px;color:#70b6e8;font-size:16px}.panel-detail,.panel-note{margin-top:14px;color:#aaa;font-size:14px}.panel-close{width:116px;height:40px;margin-top:24px;border-width:0;border-radius:20px;background-color:#454545;color:#fff;font-size:16px;font-weight:500}
+.ring-player{position:absolute;left:0;top:0;width:212px;height:520px;border-radius:106px;background-color:#6f96b7;overflow:hidden;align-items:center}.ring-clock{position:absolute;top:9px;left:67px;width:78px;color:#fff;font-size:17px;text-align:center;line-height:22px}.ring-metadata{position:absolute;left:31px;top:42px;width:150px;height:48px;flex-direction:column;align-items:center}.ring-song{width:150px;color:#fff;font-size:22px;text-align:center;lines:1;text-overflow:ellipsis}.ring-artist{width:150px;margin-top:3px;color:#d4e0e9;font-size:13px;text-align:center;lines:1;text-overflow:ellipsis}.ring-cover-shell{position:absolute;left:8px;top:113px;width:196px;height:196px;border-radius:98px;border-width:3px;border-color:#6d7780;background-color:#2d2d2d;overflow:hidden;align-items:center;justify-content:center}.ring-cover,.ring-cover-empty{width:190px;height:190px;border-radius:95px}.ring-cover-empty{background-color:#2b73a5;align-items:center;justify-content:center}.ring-cover-note{color:#c5e3f5;font-size:62px}.ring-progress-row{position:absolute;left:2px;top:352px;width:208px;height:25px;align-items:center}.ring-progress-time{width:41px;color:#fff;font-size:14px;line-height:20px;lines:1}.ring-remaining{text-align:right}.ring-progress-track{position:relative;width:124px;height:5px;margin-left:1px;margin-right:1px;border-radius:3px;background-color:#e1e7ec}.ring-progress-fill{height:5px;border-radius:3px;background-color:#fff}.ring-progress-knob{position:absolute;top:-5px;width:15px;height:15px;border-radius:8px;border-width:2px;border-color:#fff;background-color:#70b6e8}.ring-main-controls{position:absolute;left:7px;top:389px;width:198px;height:62px;align-items:center;justify-content:space-between}.ring-control{width:46px;height:50px;align-items:center;justify-content:center}.ring-previous{width:20px;height:24px}.ring-next{width:20px;height:22px}.ring-play,.ring-play-image,.ring-pause{width:62px;height:62px}.ring-play{align-items:center;justify-content:center}.ring-pause{border-radius:31px;border-width:2px;border-color:#fff;align-items:center;justify-content:center}.ring-pause-bar{width:7px;height:27px;margin-left:4px;margin-right:4px;border-radius:3px;background-color:#fff}.ring-secondary-controls{position:absolute;left:55px;top:465px;width:102px;height:36px;align-items:center;justify-content:space-between}.ring-settings{width:23px;height:23px}.ring-volume{width:20px;height:20px}
+</style>
