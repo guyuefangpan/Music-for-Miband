@@ -8,7 +8,7 @@
     <scroll class="settings-scroll" scroll-y="true">
       <div class="settings-content">
         <div class="top-space"></div>
-        <div class="setting-slot"><div class="debug-card" onclick="routeDebug"><div class="debug-icon"><text class="debug-icon-text">D</text></div><text class="row-text">Debug</text></div></div>
+        <div class="setting-slot"><div class="exit-card" onclick="exitApp"><div class="exit-icon"><div class="exit-ring"></div><div class="exit-line"></div></div><text class="row-text">退出应用</text></div></div>
         <div class="setting-slot"><div class="interface-card" onclick="routeInterface"><image class="setting-icon" src="/common/settings-interface.png"></image><text class="row-text">界面</text></div></div>
         <div class="setting-slot"><div class="theme-card" onclick="routeTheme"><image class="setting-icon" src="/common/settings-theme.png"></image><text class="row-text">主题</text></div></div>
         <div class="setting-slot"><div class="lyrics-card" onclick="routeLyrics"><image class="setting-icon" src="/common/settings-lyrics.png"></image><text class="row-text">歌词</text></div></div>
@@ -19,18 +19,19 @@
   </div>
 </template>
 <script>
-import router from "@system.router"
+import app from "@system.app"
+import { replacePage, openPlayerRoot } from "../../common/navigation.js"
 export default {
   private: { clock: "--:--" },
   onInit() { this.refreshClock(); this.timer = setInterval(() => this.refreshClock(), 1000) },
   onDestroy() { if (this.timer) clearInterval(this.timer) },
   refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
-  routeInterface() {},
-  routeDebug() { router.push({ uri: "/pages/debug" }) },
-  routeTheme() { router.push({ uri: "/pages/theme" }) },
-  routeLyrics() { router.push({ uri: "/pages/detail" }) },
-  routeAbout() { router.push({ uri: "/pages/about" }) },
-  back() { router.back() }
+  routeInterface() { replacePage("/pages/interface") },
+  routeTheme() { replacePage("/pages/theme") },
+  routeLyrics() { replacePage("/pages/lyrics-settings") },
+  routeAbout() { replacePage("/pages/about") },
+  exitApp() { app.terminate() },
+  back() { openPlayerRoot() }
 }
 </script>
 <style>
@@ -43,14 +44,16 @@ text,input{font-family:MiSans,sans-serif}
 .clock{position:absolute;right:36px;top:30px;width:58px;color:#f2f2f2;font-size:17px;font-weight:500;line-height:22px;text-align:right}
 .settings-scroll{position:absolute;left:0;top:78px;width:336px;height:402px}
 .settings-content{width:336px;height:540px;flex-direction:column;align-items:center}
-.debug-icon{width:60px;height:60px;margin-left:13px;border-radius:30px;background-color:#719ff0;align-items:center;justify-content:center}.debug-icon-text{color:#fff;font-size:29px;font-weight:500;line-height:38px}
+.exit-icon{position:relative;width:60px;height:60px;margin-left:13px;border-radius:30px;background-color:#e45b5b;align-items:center;justify-content:center}
+.exit-ring{position:absolute;left:13px;top:15px;width:34px;height:34px;border-width:4px;border-style:solid;border-color:#fff;border-radius:17px}
+.exit-line{position:absolute;left:27px;top:9px;width:6px;height:25px;border-radius:3px;background-color:#e45b5b;border-width:3px;border-style:solid;border-color:#fff}
 .top-space{width:336px;height:12px;flex-shrink:0}
 .setting-slot{width:336px;height:100px;align-items:flex-start;justify-content:center;flex-shrink:0}
-.debug-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
 .interface-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
 .theme-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
 .lyrics-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
 .about-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
+.exit-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
 .setting-icon{width:60px;height:60px;margin-left:13px}
 .row-text{margin-left:10px;color:#fff;font-size:29px;font-weight:400;line-height:38px;lines:1}
 .bottom-space{width:336px;height:16px}

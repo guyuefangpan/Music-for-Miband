@@ -5,15 +5,15 @@
   </div>
 </template>
 <script>
-import router from "@system.router"
 import { readDebugMode, writeDebugMode } from "../../common/debug.js"
+import { replacePage } from "../../common/navigation.js"
 export default {
   private: { clock: "--:--", debugMode: false },
   onInit() { this.refreshClock(); readDebugMode(value => { this.debugMode = value }); this.timer = setInterval(() => this.refreshClock(), 1000) },
   onDestroy() { if (this.timer) clearInterval(this.timer) },
   refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
   toggleDebug() { this.debugMode = !this.debugMode; writeDebugMode(this.debugMode) },
-  back() { router.back() }
+  back() { replacePage("/pages/about") }
 }
 </script>
 <style>

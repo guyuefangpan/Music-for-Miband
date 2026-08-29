@@ -26,11 +26,17 @@
     },
     {
       "name": "system.brightness"
+    },
+    {
+      "name": "system.app"
     }
   ],
   "config": {
     "logLevel": "log",
     "designWidth": "device-width"
+  },
+  "display": {
+    "orientation": "portrait"
   },
   "router": {
     "entry": "pages/index",
@@ -47,8 +53,23 @@
       "pages/settings": {
         "component": "settings"
       },
+      "pages/interface": {
+        "component": "interface"
+      },
+      "pages/landscape": {
+        "component": "landscape"
+      },
+      "pages/landscape-volume": {
+        "component": "landscape-volume"
+      },
       "pages/theme": {
         "component": "theme"
+      },
+      "pages/theme-background": {
+        "component": "theme-background"
+      },
+      "pages/lyrics-settings": {
+        "component": "lyrics-settings"
       },
       "pages/debug": {
         "component": "debug"

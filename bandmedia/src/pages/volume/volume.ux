@@ -18,9 +18,9 @@
   </div>
 </template>
 <script>
-import router from "@system.router"
 import device from "@system.device"
 import {readMediaState, sendControlCommand} from "../../common/media-sync.js"
+import { openPlayerRoot } from "../../common/navigation.js"
 export default {
   private: {volume: 0, volumeHeight: 0, ringVolumeHeight: 0, isRing10: false, volumeReady: false},
   onInit() {
@@ -55,7 +55,7 @@ export default {
     sendControlCommand("volume_down")
   },
   back() {
-    router.back()
+    openPlayerRoot()
   }
 }
 </script>

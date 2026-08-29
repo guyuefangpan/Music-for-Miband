@@ -48,9 +48,9 @@ data class SystemMediaState(
 
 object SystemMediaMonitor {
     private const val TAG = "SystemMediaMonitor"
-    // The watch renders the cover at roughly 230 px. Keep enough source pixels to avoid
-    // upscaling blur; WearBridge still divides this into three logical pieces and safe packets.
-    private const val MAX_ARTWORK_DATA_URI_CHARS = 60_000
+    // Vela's JPEG decoder corrupts some album art. PNG is larger, so progressively
+    // scale toward the watch's native cover size until it fits the transport budget.
+    private const val MAX_ARTWORK_DATA_URI_CHARS = 120_000
     private val _state = MutableStateFlow(SystemMediaState())
     val state: StateFlow<SystemMediaState> = _state.asStateFlow()
     private val _notificationAccess = MutableStateFlow(false)
@@ -275,7 +275,16 @@ object SystemMediaMonitor {
 
     private fun artworkFor(packageName: String, title: String, metadata: MediaMetadata?): String {
         val notificationArt = notificationArtwork[packageName].orEmpty()
-        val key = packageName + "|" + title + "|" + notificationArt.hashCode()
+        val metadataArt = metadata.bitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: metadata.bitmap(MediaMetadata.METADATA_KEY_ART)
+            ?: metadata.bitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+            ?: runCatching { metadata?.description?.iconBitmap }.getOrNull()
+        val metadataUri = metadata.text(
+            MediaMetadata.METADATA_KEY_ALBUM_ART_URI,
+            MediaMetadata.METADATA_KEY_ART_URI,
+            MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI,
+        )
+        val key = listOf(packageName, title, metadataArt?.generationId, metadataArt?.width, metadataArt?.height, metadataUri, notificationArt.hashCode()).joinToString("|")
         if (key == cachedArtworkKey) return cachedArtwork
         cachedArtworkKey = key
         cachedArtwork = encodeArtwork(metadata).ifBlank { encodeArtworkUri(metadata) }.ifBlank { notificationArt }
@@ -359,20 +368,20 @@ object SystemMediaMonitor {
 
     private fun encodeBitmap(bitmap: Bitmap): String {
         return try {
-            val candidates = listOf(256 to 90, 240 to 88, 230 to 86, 220 to 84, 208 to 82, 196 to 80)
+            val candidates = listOf(384, 352, 320, 288, 256, 224, 192)
             var best = ""
-            for ((edge, quality) in candidates) {
+            for (edge in candidates) {
                 val scale = minOf(1f, edge.toFloat() / maxOf(bitmap.width, bitmap.height))
                 val width = maxOf(1, (bitmap.width * scale).roundToInt())
                 val height = maxOf(1, (bitmap.height * scale).roundToInt())
                 val scaled = if (width != bitmap.width || height != bitmap.height) Bitmap.createScaledBitmap(bitmap, width, height, true) else bitmap
                 val output = ByteArrayOutputStream()
-                scaled.compress(Bitmap.CompressFormat.JPEG, quality, output)
+                scaled.compress(Bitmap.CompressFormat.PNG, 100, output)
                 if (scaled !== bitmap) scaled.recycle()
                 best = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
-                if (best.length + "data:image/jpeg;base64,".length <= MAX_ARTWORK_DATA_URI_CHARS) break
+                if (best.length + "data:image/png;base64,".length <= MAX_ARTWORK_DATA_URI_CHARS) break
             }
-            val value = "data:image/jpeg;base64," + best
+            val value = "data:image/png;base64," + best
             if (value.length <= MAX_ARTWORK_DATA_URI_CHARS) value else {
                 CommunicationLog.warn("MEDIA", "封面压缩后仍超限 chars=${value.length}")
                 ""

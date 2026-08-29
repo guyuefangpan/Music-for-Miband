@@ -14,19 +14,19 @@
 </template>
 
 <script>
-import router from "@system.router"
 import storage from "@system.storage"
+import { replacePage } from "../../common/navigation.js"
 
 const THEME_KEY = "bandmedia_theme_v1"
 
 export default {
-  private: { clock: "--:--", theme: "night" },
+  private: { clock: "--:--", theme: "night", coverTapCount: 0 },
   onInit() {
     this.refreshClock()
     this.loadTheme()
     this.timer = setInterval(() => this.refreshClock(), 1000)
   },
-  onDestroy() { if (this.timer) clearInterval(this.timer) },
+  onDestroy() { if (this.timer) clearInterval(this.timer); if (this.coverTapTimer) clearTimeout(this.coverTapTimer) },
   refreshClock() {
     const d = new Date()
     this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2)
@@ -38,10 +38,22 @@ export default {
     this.theme = value
     storage.set({ key: THEME_KEY, value, success: () => {}, fail: () => {}, complete: () => {} })
   },
-  selectCover() { this.saveTheme("cover") },
+  selectCover() {
+    this.saveTheme("cover")
+    this.coverTapCount++
+    if (this.coverTapCount >= 2) {
+      this.coverTapCount = 0
+      if (this.coverTapTimer) clearTimeout(this.coverTapTimer)
+      this.coverTapTimer = null
+      replacePage("/pages/theme-background")
+      return
+    }
+    if (this.coverTapTimer) clearTimeout(this.coverTapTimer)
+    this.coverTapTimer = setTimeout(() => { this.coverTapCount = 0; this.coverTapTimer = null }, 600)
+  },
   selectDay() { this.saveTheme("day") },
   selectNight() { this.saveTheme("night") },
-  back() { router.back() }
+  back() { replacePage("/pages/settings") }
 }
 </script>
 

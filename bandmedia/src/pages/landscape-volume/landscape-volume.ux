@@ -1,0 +1,28 @@
+<template>
+  <div class="portrait-viewport">
+  <div class="landscape-volume-page">
+    <div class="minus-button" onclick="decrease"><text class="minus-mark">−</text></div>
+    <div class="volume-slider"><div class="volume-track"><div class="volume-level" style="width:{{volumeWidth}}px"></div></div></div>
+    <div class="plus-button" onclick="increase"><text class="plus-mark">+</text></div>
+    <div class="close-button" onclick="back"><text class="close-mark">×</text></div>
+    <text class="volume-value">{{volume}}%</text>
+  </div>
+  </div>
+</template>
+<script>
+import { readMediaState, normalizeMediaState, sendControlCommand } from "../../common/media-sync.js"
+import { openPlayerRoot } from "../../common/navigation.js"
+export default {
+  private: { volume: 0, volumeWidth: 0, volumeReady: false },
+  onInit() { this.load(); this.timer = setInterval(() => this.load(), 200) },
+  onDestroy() { if (this.timer) clearInterval(this.timer) },
+  load() { const realtime = this.$app.$def.getRealtimeMediaState(); if (realtime && realtime.state) { this.apply(normalizeMediaState(realtime.state, realtime.connected)); return } readMediaState(media => this.apply(media), () => {}) },
+  apply(media) { if (!media.volumeValid) return; this.volumeReady = true; this.volume = media.volume; this.volumeWidth = Math.round(media.volume * 2.06) },
+  increase() { if (this.volumeReady) sendControlCommand("volume_up") }, decrease() { if (this.volumeReady) sendControlCommand("volume_down") }, back() { openPlayerRoot() }
+}
+</script>
+<style>
+text,input{font-family:MiSans,sans-serif}.landscape-volume-page{width:480px;height:336px;position:relative;background-color:#000;overflow:hidden}.minus-button,.plus-button{position:absolute;top:137px;width:47px;height:62px;border-radius:24px;background-color:#303030;align-items:center;justify-content:center}.minus-button{left:49px}.plus-button{left:325px}.minus-mark,.plus-mark{color:#fff;font-size:46px;font-weight:500;line-height:56px}.volume-slider{position:absolute;left:107px;top:137px;width:206px;height:62px;border-radius:18px;background-color:#303030;overflow:hidden}.volume-track{width:206px;height:62px;align-items:flex-start}.volume-level{height:62px;background-color:#fff}.close-button{position:absolute;left:384px;top:136px;width:52px;height:62px;align-items:center;justify-content:center}.close-mark{color:#888;font-size:52px;font-weight:500;line-height:58px}.volume-value{position:absolute;left:188px;top:211px;width:104px;color:#fff;font-size:18px;text-align:center;line-height:24px}
+.portrait-viewport{width:336px;height:480px;position:relative;background-color:#000;overflow:hidden}
+.landscape-volume-page{position:absolute;left:336px;top:0;width:480px;height:336px;transform:rotate(90deg);transform-origin:left top}
+</style>

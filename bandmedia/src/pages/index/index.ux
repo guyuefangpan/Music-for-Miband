@@ -1,6 +1,9 @@
 <template>
   <div class="player-page {{theme === 'day' ? 'day-theme' : ''}}">
-    <div if="{{!isRing10}}" class="exit-button" onclick="exitApp"><image class="back-icon" src="{{theme === 'day' ? '/common/back-day.png' : '/common/back.png'}}"></image></div>
+    <image if="{{theme === 'cover' && connected && albumArt && !isRing10}}" class="cover-background-base" src="{{albumArt}}"></image>
+    <image if="{{theme === 'cover' && connected && albumArt && !isRing10}}" class="cover-background-blur" src="{{albumArt}}" style="filter:blur({{coverBlurPx}}px)"></image>
+    <div if="{{theme === 'cover' && connected && albumArt && !isRing10}}" class="cover-background-tint" style="opacity:{{coverOverlayOpacity}}"></div>
+    <div if="{{!isRing10}}" class="exit-button" onclick="exitApp"><image class="back-icon" src="/common/back.png"></image></div>
     <text if="{{!isRing10}}" class="{{theme === 'day' ? 'clock-day' : 'clock-night'}}">{{clock}}</text>
     <div if="{{!isRing10}}" class="metadata" onclick="routeLyrics">
       <text class="{{theme === 'day' ? 'song-day' : 'song-night'}}">{{song}}</text>
@@ -19,20 +22,22 @@
     </div>
 
     <div if="{{!isRing10}}" class="progress-row">
-      <text class="{{theme === 'day' ? 'progress-time elapsed progress-time-day' : 'progress-time elapsed'}}">{{elapsed}}</text>
+      <text class="{{theme === 'day' ? 'progress-time-day-left' : 'progress-time-left'}}">{{elapsed}}</text>
       <div class="progress-slider">
-        <div class="{{theme === 'day' ? 'progress-track progress-track-day' : 'progress-track'}}"><div if="{{hasProgress}}" class="progress-fill" style="width:{{progressWidth}}px"></div></div>
-        <div if="{{hasProgress}}" class="progress-knob" style="left:{{progressKnobLeft}}px"></div>
+        <div class="{{theme === 'day' ? 'progress-track progress-track-day' : 'progress-track'}}"><div if="{{hasProgress}}" class="{{theme === 'day' ? 'progress-fill progress-fill-day' : 'progress-fill'}}" style="width:{{progressWidth}}px"></div></div>
+        <div if="{{hasProgress}}" class="{{theme === 'day' ? 'progress-knob progress-knob-day' : 'progress-knob'}}" style="left:{{progressKnobLeft}}px"></div>
       </div>
-      <text class="{{theme === 'day' ? 'progress-time remaining progress-time-day' : 'progress-time remaining'}}">{{remaining}}</text>
+      <text class="{{theme === 'day' ? 'progress-time-day-right' : 'progress-time-right'}}">{{remaining}}</text>
     </div>
 
     <div if="{{!isRing10}}" class="control-row">
       <div class="control-small" onclick="routeSettings"><image class="settings-icon" src="{{theme === 'day' ? '/common/setting-day.png' : '/common/setting.png'}}"></image></div>
       <div class="control-small" onclick="previous"><image class="previous-icon" src="{{theme === 'day' ? '/common/previous-day.png' : '/common/previous.png'}}"></image></div>
       <div class="control-play" onclick="togglePlayback">
-        <image if="{{!playing}}" class="play-icon" src="{{theme === 'day' ? '/common/play-day.png' : '/common/play.png'}}"></image>
-        <div if="{{playing}}" class="{{theme === 'day' ? 'pause-icon pause-icon-day' : 'pause-icon'}}"><div class="{{theme === 'day' ? 'pause-bar pause-bar-day' : 'pause-bar'}}"></div><div class="{{theme === 'day' ? 'pause-bar pause-bar-day' : 'pause-bar'}}"></div></div>
+        <image if="{{!playing && theme !== 'day'}}" class="play-icon" src="/common/play.png"></image>
+        <div if="{{!playing && theme === 'day'}}" class="play-day-code"><div class="play-day-triangle"></div></div>
+        <div if="{{playing && theme !== 'day'}}" class="pause-icon-night"><div class="pause-bar-night"></div><div class="pause-bar-night"></div></div>
+        <div if="{{playing && theme === 'day'}}" class="pause-icon-day-code"><div class="pause-bar-day-code"></div><div class="pause-bar-day-code"></div></div>
       </div>
       <div class="control-small" onclick="next"><image class="next-icon" src="{{theme === 'day' ? '/common/next-day.png' : '/common/next.png'}}"></image></div>
       <div class="control-small" onclick="routeVolume"><image class="volume-icon" src="{{theme === 'day' ? '/common/volume-day.png' : '/common/volume.png'}}"></image></div>
@@ -58,8 +63,10 @@
 import router from "@system.router"
 import device from "@system.device"
 import { readMediaState, normalizeMediaState, sendControlCommand } from "../../common/media-sync.js"
-import { readTheme } from "../../common/theme.js"
+import { readTheme, readCoverBackground } from "../../common/theme.js"
 import { readDebugMode } from "../../common/debug.js"
+import { readInterfaceOrientation } from "../../common/interface.js"
+import { replacePage } from "../../common/navigation.js"
 
 export default {
   private: {
@@ -84,9 +91,12 @@ export default {
     ringProgressWidth: 0,
     ringProgressKnobLeft: 0,
     theme: "night",
-    debugMode: false
+    debugMode: false,
+    coverBlurPx: 24,
+    coverOverlayOpacity: 0.2
   },
   onInit() {
+    readInterfaceOrientation(value => { if (value === "landscape") router.push({ uri: "/pages/landscape", params: { ___PARAM_LAUNCH_FLAG___: "clearTask" } }) })
     this.detectDevice()
     this.refreshClock()
     this.loadTheme()
@@ -96,7 +106,10 @@ export default {
       this.refreshData()
     }, 50)
   },
-  loadTheme() { readTheme(theme => { this.theme = theme }) },
+  onShow() { this.syncOrientation(); this.loadTheme() },
+  onRefresh() { this.syncOrientation(); this.loadTheme() },
+  syncOrientation() { readInterfaceOrientation(value => { if (value === "landscape") router.push({ uri: "/pages/landscape", params: { ___PARAM_LAUNCH_FLAG___: "clearTask" } }) }) },
+  loadTheme() { readTheme(theme => { this.theme = theme }); readCoverBackground(value => { this.coverBlurPx = Math.round(value.blur * 24 / 100); this.coverOverlayOpacity = value.overlay / 100 }) },
   refreshData() { this.loadSyncData() },
   detectDevice() {
     device.getInfo({ success: info => { const width = info.screenWidth || info.width || info.windowWidth; const height = info.screenHeight || info.height || info.windowHeight; this.isRing10 = Number(width) === 212 && Number(height) === 520 }, fail: () => {}, complete: () => {} })
@@ -159,9 +172,9 @@ export default {
       this.connectionState = media.connectionState
       this.connected = media.connectionState === "已连接"
   },
-  routeLyrics() { router.push({ uri: "/pages/detail" }) },
-  routeVolume() { router.push({ uri: "/pages/volume" }) },
-  routeSettings() { router.push({ uri: "/pages/settings" }) },
+  routeLyrics() { replacePage("/pages/detail", { theme: this.theme }) },
+  routeVolume() { replacePage("/pages/volume") },
+  routeSettings() { replacePage("/pages/settings") },
   exitApp() { router.back() },
   togglePlayback() {
     sendControlCommand(this.playing ? "pause" : "play")
@@ -175,10 +188,13 @@ export default {
 <style>
 text,input{font-family:MiSans,sans-serif}
 .player-page{width:100%;height:100%;position:relative;background-color:#242424;overflow:hidden}
+.cover-background-base{position:absolute;left:0;top:0;width:336px;height:480px}
+.cover-background-blur{position:absolute;left:-50px;top:-72px;width:436px;height:624px}
+.cover-background-tint{position:absolute;left:0;top:0;width:336px;height:480px;background-color:#000}
 .cover-area{position:absolute;left:0;top:94px;width:336px;height:238px;align-items:center;justify-content:center}
 .disconnected-message{width:300px;color:#fff;font-size:22px;text-align:center;line-height:30px}
-.day-theme{background-color:#fff}
-.clock-night,.clock-day{position:absolute;right:36px;top:30px;width:58px;font-size:17px;font-weight:500;text-align:right;line-height:22px}.clock-night{color:#f2f2f2}.clock-day{color:#555}.progress-time-day{color:#555}.progress-track-day{background-color:#aaa}.pause-icon-day{border-color:#555}.pause-bar-day{background-color:#555}
+.day-theme{background-color:#fff;color:#444}
+.clock-night,.clock-day{position:absolute;right:36px;top:30px;width:58px;font-size:17px;font-weight:500;text-align:right;line-height:22px}.clock-night{color:#f2f2f2}.clock-day{color:#555}.progress-track-day{background-color:#d7e1e8}
 .exit-button{position:absolute;left:10px;top:8px;width:58px;height:54px;align-items:center;justify-content:center}.back-icon{width:40px;height:40px}
 .metadata{position:absolute;left:88px;top:27px;width:160px;height:48px;flex-direction:column;align-items:center}
 .song-night,.song-day{width:160px;font-size:21px;font-weight:500;text-align:center;line-height:25px;lines:1;text-overflow:ellipsis}.song-night{color:#fff}.song-day{color:#444}
@@ -189,8 +205,7 @@ text,input{font-family:MiSans,sans-serif}
 .cover-note{color:#b9ddf5;font-size:72px;font-weight:400;line-height:82px}
 .cover-label{width:178px;margin-top:5px;color:#164a72;font-size:14px;text-align:center;lines:1;text-overflow:ellipsis}
 .progress-row{position:absolute;left:20px;top:352px;width:296px;height:30px;align-items:center}
-.progress-time{width:48px;height:22px;color:#fff;font-size:14px;font-weight:500;line-height:22px;lines:1;}
-.elapsed{text-align:left}.remaining{text-align:right}
+.progress-time-left,.progress-time-right,.progress-time-day-left,.progress-time-day-right{width:48px;height:22px;font-size:14px;font-weight:500;line-height:22px;lines:1}.progress-time-left,.progress-time-right{color:#fff}.progress-time-day-left,.progress-time-day-right{color:#555}.progress-time-left,.progress-time-day-left{text-align:left}.progress-time-right,.progress-time-day-right{text-align:right}
 .progress-slider{position:relative;width:198px;height:17px;margin-left:1px;margin-right:1px}.progress-track{position:absolute;left:0;top:5px;width:198px;height:7px;border-radius:4px;background-color:#9b9b9b}
 .progress-fill{height:7px;border-radius:4px;background-color:#70b6e8}
 .progress-knob{position:absolute;top:0;width:17px;height:17px;border-radius:9px;border-width:2px;border-color:#fff;background-color:#70b6e8}
@@ -198,7 +213,7 @@ text,input{font-family:MiSans,sans-serif}
 .control-small{width:40px;height:52px;align-items:center;justify-content:center}
 .settings-icon{width:23px;height:23px}.previous-icon{width:20px;height:24px}.next-icon{width:20px;height:22px}.volume-icon{width:20px;height:20px}
 .control-play{width:62px;height:62px;align-items:center;justify-content:center}
-.play-icon{width:62px;height:62px}.pause-icon{width:62px;height:62px;border-radius:31px;border-width:2px;border-color:#fff;align-items:center;justify-content:center}.pause-bar{width:7px;height:27px;margin-left:4px;margin-right:4px;border-radius:3px;background-color:#fff}
+.play-icon{width:62px;height:62px}.play-day-code{position:relative;width:62px;height:62px;border-radius:31px;border-width:2px;border-style:solid;border-color:#555;align-items:center;justify-content:center}.play-day-triangle{width:0;height:0;margin-left:5px;border-top-width:12px;border-bottom-width:12px;border-left-width:19px;border-top-color:transparent;border-bottom-color:transparent;border-left-color:#555;border-style:solid}.pause-icon-night,.pause-icon-day-code{width:62px;height:62px;border-radius:31px;border-width:2px;border-style:solid;align-items:center;justify-content:center}.pause-icon-night{border-color:#fff}.pause-icon-day-code{border-color:#555}.pause-bar-night,.pause-bar-day-code{width:7px;height:27px;margin-left:4px;margin-right:4px;border-radius:3px}.pause-bar-night{background-color:#fff}.pause-bar-day-code{background-color:#555}
 .settings-panel{position:absolute;left:20px;top:105px;width:296px;height:246px;border-radius:34px;background-color:#303030;flex-direction:column;align-items:center;padding-top:26px}
 .panel-title{color:#fff;font-size:20px;font-weight:500}.panel-state{margin-top:18px;color:#70b6e8;font-size:16px}.panel-detail,.panel-note{margin-top:14px;color:#aaa;font-size:14px}.panel-close{width:116px;height:40px;margin-top:24px;border-width:0;border-radius:34px;background-color:#454545;color:#fff;font-size:16px;font-weight:500}
 .ring-player{position:absolute;left:0;top:0;width:212px;height:520px;border-radius:106px;background-color:#6f96b7;overflow:hidden;align-items:center}.ring-clock{position:absolute;top:9px;left:67px;width:78px;color:#fff;font-size:17px;text-align:center;line-height:22px}.ring-metadata{position:absolute;left:31px;top:42px;width:150px;height:48px;flex-direction:column;align-items:center}.ring-song{width:150px;color:#fff;font-size:22px;text-align:center;lines:1;text-overflow:ellipsis}.ring-artist{width:150px;margin-top:3px;color:#d4e0e9;font-size:13px;text-align:center;lines:1;text-overflow:ellipsis}.ring-cover-shell{position:absolute;left:8px;top:113px;width:196px;height:196px;border-radius:98px;border-width:3px;border-color:#6d7780;background-color:#2d2d2d;overflow:hidden;align-items:center;justify-content:center}.ring-cover,.ring-cover-empty{width:190px;height:190px;border-radius:95px}.ring-cover-empty{background-color:#2b73a5;align-items:center;justify-content:center}.ring-cover-note{color:#c5e3f5;font-size:62px}.ring-progress-row{position:absolute;left:2px;top:352px;width:208px;height:25px;align-items:center}.ring-progress-time{width:41px;color:#fff;font-size:14px;line-height:20px;lines:1}.ring-remaining{text-align:right}.ring-progress-track{position:relative;width:124px;height:5px;margin-left:1px;margin-right:1px;border-radius:3px;background-color:#e1e7ec}.ring-progress-fill{height:5px;border-radius:3px;background-color:#fff}.ring-progress-knob{position:absolute;top:-5px;width:15px;height:15px;border-radius:8px;border-width:2px;border-color:#fff;background-color:#70b6e8}.ring-main-controls{position:absolute;left:7px;top:389px;width:198px;height:62px;align-items:center;justify-content:space-between}.ring-control{width:46px;height:50px;align-items:center;justify-content:center}.ring-previous{width:20px;height:24px}.ring-next{width:20px;height:22px}.ring-play,.ring-play-image,.ring-pause{width:62px;height:62px}.ring-play{align-items:center;justify-content:center}.ring-pause{border-radius:31px;border-width:2px;border-color:#fff;align-items:center;justify-content:center}.ring-pause-bar{width:7px;height:27px;margin-left:4px;margin-right:4px;border-radius:3px;background-color:#fff}.ring-secondary-controls{position:absolute;left:55px;top:465px;width:102px;height:36px;align-items:center;justify-content:space-between}.ring-settings{width:23px;height:23px}.ring-volume{width:20px;height:20px}
@@ -206,4 +221,5 @@ text,input{font-family:MiSans,sans-serif}
 .ring-progress-slider{position:relative;width:124px;height:15px;margin-left:1px;margin-right:1px}
 .ring-progress-track{position:absolute;left:0;top:5px;width:124px;height:5px;margin-left:0;margin-right:0}
 .ring-progress-knob{position:absolute;top:0;width:15px;height:15px;border-radius:8px;border-width:2px;border-color:#fff;background-color:#70b6e8}
+.progress-fill-day{background-color:#388ac2}.progress-knob-day{border-color:#444}
 </style>

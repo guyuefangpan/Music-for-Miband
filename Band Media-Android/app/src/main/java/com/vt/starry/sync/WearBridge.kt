@@ -1,6 +1,8 @@
 package com.vt.starry.sync
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
 import com.xiaomi.xms.wearable.Wearable
@@ -15,7 +17,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 import java.util.UUID
+import java.util.zip.Adler32
 
 enum class WearState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
@@ -24,10 +29,10 @@ class WearBridge private constructor(private val context: Context) {
         private const val WATCH_ENTRY = "/pages/index"
         // Shell++ uses 4096-byte interconnect messages successfully. Keeping realtime
         // snapshots in one message avoids reassembly latency on the watch.
-        private const val CHUNK_SIZE = 4096
-        private const val MAX_PACKET_BYTES = 4600
-        private const val ARTWORK_PART_SIZE = 20_000
+        private const val MAX_PACKET_BYTES = 4096
+        private const val ARTWORK_PART_SIZE = 40_000
         private const val MAX_ARTWORK_CHARS = ARTWORK_PART_SIZE * 3
+        private const val PNG_DATA_URI_PREFIX = "data:image/png;base64,"
         private const val HEARTBEAT_MS = 5_000L
         private const val HEARTBEAT_TIMEOUT_MS = 20_000L
         private const val DISCOVERY_TIMEOUT_MS = 8_000L
@@ -36,6 +41,14 @@ class WearBridge private constructor(private val context: Context) {
         private const val LYRICS_BATCH_LINES = 8
         private const val LYRICS_ACK_TIMEOUT_MS = 3_000L
         private const val MAX_LYRICS_SEND_ATTEMPTS = 3
+        private const val ARTWORK_ACK_TIMEOUT_MS = 4_000L
+        private const val ARTWORK_PROBE_TIMEOUT_MS = 2_000L
+        private const val MAX_ARTWORK_PROBE_ATTEMPTS = 2
+        private const val MAX_ARTWORK_SEND_ATTEMPTS = 2
+        private const val MEDIA_PROTOCOL_VERSION = 2
+        private const val SOFT_RESTART_DELAY_MS = 750L
+        private const val RECONNECT_DELAY_MS = 1_000L
+        private const val RECONNECT_CYCLE_MS = 5_000L
         @Volatile private var instance: WearBridge? = null
         fun get(context: Context): WearBridge = instance ?: synchronized(this) {
             instance ?: WearBridge(context.applicationContext).also { instance = it }
@@ -67,12 +80,31 @@ class WearBridge private constructor(private val context: Context) {
     private var pendingLyricsAckId = ""
     private var pendingLyrics: List<LyricLine> = emptyList()
     private var lyricsSendAttempt = 0
+    private var pendingArtworkAckId = ""
+    private var pendingArtwork = ""
+    private var pendingArtworkMediaKey = ""
+    private var pendingArtworkTransferId = ""
+    private var pendingArtworkProbeId = ""
+    private var artworkProbeAttempt = 0
+    private var artworkSendAttempt = 0
+    private var artworkLocallySent = false
+    private var artworkWatchConfirmed = false
+    private var blockedTransferMediaKey = ""
     private var realtimeSequence = 0L
     private var lastLatencyLogAt = 0L
     private var discoveryAttempt = 0
     private var launchAttempt = 0
     private val launchRetry = object : Runnable {
         override fun run() = launchQuickAppUntilReady()
+    }
+    private val reconnect = object : Runnable {
+        override fun run() {
+            if (deviceInfoReceived) return
+            beginReconnectSession()
+        }
+    }
+    private val softRestart = object : Runnable {
+        override fun run() = start()
     }
     private val lyricsAckTimeout = object : Runnable {
         override fun run() {
@@ -85,8 +117,30 @@ class WearBridge private constructor(private val context: Context) {
             sendLyrics(pendingLyricsAckId, pendingLyrics, true)
         }
     }
+    private val artworkAckTimeout = object : Runnable {
+        override fun run() {
+            if (!deviceInfoReceived || pendingArtworkAckId.isBlank() || pendingArtwork.isBlank()) return
+            retryArtworkOrAbort("手环确认超时")
+        }
+    }
+    private val artworkProbeTimeout = object : Runnable {
+        override fun run() {
+            if (!deviceInfoReceived || pendingArtworkAckId.isBlank() || pendingArtwork.isBlank()) return
+            if (artworkProbeAttempt < MAX_ARTWORK_PROBE_ATTEMPTS) {
+                CommunicationLog.warn("TX", "封面预检未响应，正在重试 id=$pendingArtworkAckId")
+                probeArtworkOnWatch()
+            } else {
+                CommunicationLog.error("TX", "封面预检连续未响应，已停止上传 id=$pendingArtworkAckId")
+                pendingArtworkProbeId = ""
+            }
+        }
+    }
 
-    private data class OutboundMessage(val type: String, val packets: List<ByteArray>)
+    private data class OutboundMessage(
+        val type: String,
+        val packets: List<ByteArray>,
+        val onSent: (() -> Unit)? = null
+    )
 
     private val listener = OnMessageReceivedListener { nodeId, bytes ->
         if (node?.id != nodeId) return@OnMessageReceivedListener
@@ -102,6 +156,7 @@ class WearBridge private constructor(private val context: Context) {
         sessionId = UUID.randomUUID().toString()
         handshakeSent = false
         launchAttempt = 0
+        handler.removeCallbacks(reconnect)
         if (nodeApi == null) {
             nodeApi = Wearable.getNodeApi(context)
             messageApi = Wearable.getMessageApi(context)
@@ -111,14 +166,20 @@ class WearBridge private constructor(private val context: Context) {
         handler.postDelayed({
             if (attempt == discoveryAttempt && _state.value == WearState.CONNECTING) {
                 updateState(WearState.DISCONNECTED, "未发现小米运动健康互联节点")
+                scheduleReconnect(RECONNECT_CYCLE_MS)
             }
         }, DISCOVERY_TIMEOUT_MS)
         nodeApi!!.connectedNodes.addOnSuccessListener { nodes ->
             if (attempt != discoveryAttempt) return@addOnSuccessListener
-            nodes.firstOrNull()?.let(::attach)
-                ?: updateState(WearState.DISCONNECTED, "未发现互联互通节点")
+            nodes.firstOrNull()?.let(::attach) ?: run {
+                updateState(WearState.DISCONNECTED, "未发现互联互通节点")
+                scheduleReconnect(RECONNECT_CYCLE_MS)
+            }
         }.addOnFailureListener {
-            if (attempt == discoveryAttempt) updateState(WearState.ERROR, "获取手环节点失败: ${it.message.orEmpty()}")
+            if (attempt == discoveryAttempt) {
+                updateState(WearState.ERROR, "获取手环节点失败: ${it.message.orEmpty()}")
+                scheduleReconnect(RECONNECT_CYCLE_MS)
+            }
         }
     }
 
@@ -130,7 +191,11 @@ class WearBridge private constructor(private val context: Context) {
                 CommunicationLog.info("CONN", "消息通道已就绪")
                 subscribeConnection(found)
                 launchQuickAppUntilReady()
-            }.addOnFailureListener { updateState(WearState.ERROR, "注册消息监听失败: ${it.message.orEmpty()}") }
+            }.addOnFailureListener {
+                listenerInstalled = false
+                updateState(WearState.ERROR, "注册消息监听失败: ${it.message.orEmpty()}")
+                scheduleReconnect(RECONNECT_CYCLE_MS)
+            }
         }
         messageApi!!.removeListener(found.id)
             .addOnSuccessListener { install() }
@@ -158,7 +223,8 @@ class WearBridge private constructor(private val context: Context) {
     private fun launchQuickAppUntilReady() {
         if (deviceInfoReceived || launchAttempt >= MAX_LAUNCH_ATTEMPTS) {
             if (!deviceInfoReceived && launchAttempt >= MAX_LAUNCH_ATTEMPTS) {
-                updateState(WearState.DISCONNECTED, "Quick App 连续 10 次未响应，已暂停重试")
+                updateState(WearState.DISCONNECTED, "Quick App 连续 10 次未响应，5 秒后重新连接")
+                scheduleReconnect(RECONNECT_CYCLE_MS)
             }
             return
         }
@@ -196,11 +262,17 @@ class WearBridge private constructor(private val context: Context) {
             sendJson(JSONObject().put("type", "music_clear"), false)
             return
         }
-        val artworkId = Integer.toHexString(media.albumArt.hashCode())
-        val lyricsId = Integer.toHexString(media.lyrics.hashCode())
+        val mediaKey = listOf(media.packageName, media.title, media.artist, media.album).joinToString("|")
+        if (blockedTransferMediaKey.isNotBlank() && blockedTransferMediaKey != mediaKey) {
+            blockedTransferMediaKey = ""
+        }
+        val pngArtwork = normalizeArtworkToPng(media.albumArt)
+        val artworkId = if (pngArtwork.isBlank()) "" else Integer.toHexString(pngArtwork.hashCode())
+        val lyricsId = if (media.lyrics.isEmpty()) "" else Integer.toHexString(media.lyrics.hashCode())
         sendJson(JSONObject().apply {
             put("type", "music_info")
             put("title", media.title); put("artist", media.artist); put("album", media.album)
+            put("mediaKey", mediaKey)
             put("artworkId", artworkId); put("lyricsId", lyricsId); put("state", if (media.playbackState == "playing") 1 else 0)
             put("playbackState", media.playbackState); put("positionMs", media.positionMs); put("durationMs", media.durationMs)
             put("volume", media.volume); put("muted", media.muted)
@@ -214,10 +286,130 @@ class WearBridge private constructor(private val context: Context) {
             lyricsSendAttempt = 0
             sendLyrics(lyricsId, pendingLyrics, true)
         }
-        if (artworkId != lastArtworkKey) {
-            lastArtworkKey = artworkId
-            sendAlbumArt(artworkId, media.albumArt)
+        val artworkKey = if (artworkId.isBlank()) "" else "$mediaKey|$artworkId"
+        if (artworkKey != lastArtworkKey) {
+            lastArtworkKey = artworkKey
+            handler.removeCallbacks(artworkAckTimeout)
+            pendingArtworkAckId = artworkId
+            pendingArtwork = pngArtwork
+            pendingArtworkMediaKey = mediaKey
+            artworkSendAttempt = 0
+            artworkProbeAttempt = 0
+            pendingArtworkProbeId = ""
+            artworkLocallySent = false
+            artworkWatchConfirmed = false
+            if (artworkId.isNotBlank() && pngArtwork.isNotBlank()) {
+                probeArtworkOnWatch()
+            }
         }
+    }
+
+    private fun probeArtworkOnWatch() {
+        val id = pendingArtworkAckId
+        val artwork = pendingArtwork
+        if (!deviceInfoReceived || id.isBlank() || artwork.isBlank()) return
+        val bytes = runCatching { Base64.decode(artwork.substringAfter(',', artwork), Base64.DEFAULT) }.getOrNull()
+        if (bytes == null || !isCompletePng(bytes)) {
+            retryArtworkOrAbort("封面预检前 PNG 解码失败")
+            return
+        }
+        val probeId = UUID.randomUUID().toString()
+        pendingArtworkProbeId = probeId
+        artworkProbeAttempt++
+        val checksum = Adler32().apply { update(bytes) }.value
+        handler.removeCallbacks(artworkProbeTimeout)
+        sendJson(JSONObject().put("type", "artwork_probe")
+            .put("requestId", probeId).put("id", id).put("format", "png")
+            .put("bytes", bytes.size).put("sum", checksum), false, true)
+        handler.postDelayed(artworkProbeTimeout, ARTWORK_PROBE_TIMEOUT_MS)
+        CommunicationLog.info("TX", "上传前校验手环封面 id=$id attempt=$artworkProbeAttempt/$MAX_ARTWORK_PROBE_ATTEMPTS")
+    }
+
+    private fun normalizeArtworkToPng(artwork: String): String {
+        if (artwork.isBlank()) return ""
+        val encoded = artwork.substringAfter(',', "")
+        if (encoded.isBlank()) {
+            CommunicationLog.warn("MEDIA", "封面缺少 Base64 数据，已阻止发送")
+            return ""
+        }
+        val source = runCatching { Base64.decode(encoded, Base64.DEFAULT) }.getOrElse {
+            CommunicationLog.warn("MEDIA", "封面 Base64 解码失败，已阻止发送")
+            return ""
+        }
+        if (isCompletePng(source)) {
+            val canonical = PNG_DATA_URI_PREFIX + Base64.encodeToString(source, Base64.NO_WRAP)
+            if (canonical.length <= MAX_ARTWORK_CHARS) return canonical
+        }
+        val bitmap = BitmapFactory.decodeByteArray(source, 0, source.size) ?: run {
+            CommunicationLog.warn("MEDIA", "封面无法转换为 PNG，已阻止发送")
+            return ""
+        }
+        return try {
+            val edges = listOf(384, 352, 320, 288, 256, 224, 192, 160)
+            for (edge in edges) {
+                val scale = minOf(1f, edge.toFloat() / maxOf(bitmap.width, bitmap.height))
+                val width = maxOf(1, (bitmap.width * scale).toInt())
+                val height = maxOf(1, (bitmap.height * scale).toInt())
+                val scaled = if (width == bitmap.width && height == bitmap.height) bitmap
+                    else Bitmap.createScaledBitmap(bitmap, width, height, true)
+                val output = ByteArrayOutputStream()
+                scaled.compress(Bitmap.CompressFormat.PNG, 100, output)
+                if (scaled !== bitmap) scaled.recycle()
+                val bytes = output.toByteArray()
+                val value = PNG_DATA_URI_PREFIX + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                if (isCompletePng(bytes) && value.length <= MAX_ARTWORK_CHARS) {
+                    CommunicationLog.info("MEDIA", "封面已在 Android 发送前转换为 PNG ${width}x$height bytes=${bytes.size}")
+                    return value
+                }
+            }
+            CommunicationLog.warn("MEDIA", "PNG 封面转换后仍超出传输上限，已阻止发送")
+            ""
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun isCompletePng(bytes: ByteArray): Boolean =
+        bytes.size >= 16 &&
+            bytes[0].toInt() and 0xff == 137 && bytes[1].toInt() == 80 &&
+            bytes[2].toInt() == 78 && bytes[3].toInt() == 71 &&
+            bytes[4].toInt() == 13 && bytes[5].toInt() == 10 &&
+            bytes[6].toInt() == 26 && bytes[7].toInt() == 10 &&
+            bytes[bytes.size - 8].toInt() == 73 && bytes[bytes.size - 7].toInt() == 69 &&
+            bytes[bytes.size - 6].toInt() == 78 && bytes[bytes.size - 5].toInt() == 68 &&
+            bytes[bytes.size - 4].toInt() and 0xff == 174 && bytes[bytes.size - 3].toInt() == 66 &&
+            bytes[bytes.size - 2].toInt() == 96 && bytes[bytes.size - 1].toInt() and 0xff == 130
+
+    fun forceSyncArtwork(media: SystemMediaState): Boolean {
+        if (!deviceInfoReceived) {
+            CommunicationLog.warn("DEBUG", "手动同步封面失败：Quick App 未连接")
+            return false
+        }
+        if (media.title.isBlank() || media.albumArt.isBlank()) {
+            CommunicationLog.warn("DEBUG", "手动同步封面失败：当前媒体没有封面")
+            return false
+        }
+        blockedTransferMediaKey = ""
+        lastArtworkKey = ""
+        CommunicationLog.info("DEBUG", "手动同步封面：${media.title}")
+        sendMusicState(media)
+        return true
+    }
+
+    fun forceSyncLyrics(media: SystemMediaState): Boolean {
+        if (!deviceInfoReceived) {
+            CommunicationLog.warn("DEBUG", "手动同步歌词失败：Quick App 未连接")
+            return false
+        }
+        if (media.title.isBlank() || media.lyrics.isEmpty()) {
+            CommunicationLog.warn("DEBUG", "手动同步歌词失败：当前媒体没有歌词")
+            return false
+        }
+        blockedTransferMediaKey = ""
+        lastLyricsKey = ""
+        CommunicationLog.info("DEBUG", "手动同步完整歌词：${media.title} lines=${media.lyrics.size}")
+        sendMusicState(media)
+        return true
     }
 
     private fun sendLyrics(lyricsId: String, lyrics: List<LyricLine>, trackAck: Boolean) {
@@ -260,18 +452,92 @@ class WearBridge private constructor(private val context: Context) {
         }, false, urgent)
     }
 
-    private fun sendAlbumArt(artworkId: String, artwork: String) {
+    private fun sendAlbumArt(artworkId: String, artwork: String, trackAck: Boolean) {
         val value = artwork.takeIf { it.length <= MAX_ARTWORK_CHARS }.orEmpty()
-        val parts = if (value.isEmpty()) listOf("") else value.chunked(ARTWORK_PART_SIZE)
+        if (artworkId.isBlank() || value.isEmpty()) return
+        if (!value.startsWith(PNG_DATA_URI_PREFIX)) {
+            retryArtworkOrAbort("封面不是 PNG")
+            return
+        }
+        if (trackAck) artworkSendAttempt++
+        artworkLocallySent = false
+        artworkWatchConfirmed = false
+        handler.removeCallbacks(artworkAckTimeout)
+        handler.removeCallbacks(artworkProbeTimeout)
+        pendingArtworkProbeId = ""
+        val transferId = UUID.randomUUID().toString()
+        pendingArtworkTransferId = transferId
+        val encoded = value.substringAfter(',', value)
+        val decoded = runCatching { Base64.decode(encoded, Base64.DEFAULT) }.getOrElse {
+            retryArtworkOrAbort("Android 封面解码失败")
+            return
+        }
+        val checksum = Adler32().apply { update(decoded) }.value
+        val parts = value.chunked(ARTWORK_PART_SIZE)
         if (parts.size > 3) return
         val packets = parts.flatMapIndexed { index, part ->
-            packetsFor(JSONObject().put("type", "album_art").put("id", artworkId).put("i", index).put("t", parts.size).put("d", part).toString())
+            packetsFor(JSONObject().put("type", "album_art").put("id", artworkId)
+                .put("tx", transferId).put("i", index).put("t", parts.size)
+                .put("format", "png")
+                .put("chars", value.length).put("bytes", decoded.size).put("sum", checksum)
+                .put("d", part).toString())
         }
         synchronized(outgoing) {
             outgoing.removeAll { it.type == "album_art" }
-            outgoing.addLast(OutboundMessage("album_art", packets))
+            outgoing.addLast(OutboundMessage("album_art", packets) {
+                if (pendingArtworkAckId == artworkId && pendingArtworkTransferId == transferId && pendingArtwork.isNotBlank()) {
+                    artworkLocallySent = true
+                    CommunicationLog.info("TX", "专辑图已由 Android 完整发出，等待手环确认 id=$artworkId attempt=$artworkSendAttempt/$MAX_ARTWORK_SEND_ATTEMPTS")
+                    completeArtworkIfConfirmed()
+                    if (pendingArtworkAckId.isNotBlank()) {
+                        handler.removeCallbacks(artworkAckTimeout)
+                        handler.postDelayed(artworkAckTimeout, ARTWORK_ACK_TIMEOUT_MS)
+                    }
+                }
+            })
         }
         drainOutgoing()
+    }
+
+    private fun retryArtworkOrAbort(reason: String) {
+        handler.removeCallbacks(artworkAckTimeout)
+        handler.removeCallbacks(artworkProbeTimeout)
+        if (pendingArtworkAckId.isBlank() || pendingArtwork.isBlank()) return
+        if (artworkSendAttempt < MAX_ARTWORK_SEND_ATTEMPTS) {
+            CommunicationLog.warn("TX", "$reason，完整重试专辑图 id=$pendingArtworkAckId")
+            sendAlbumArt(pendingArtworkAckId, pendingArtwork, true)
+            return
+        }
+        val failedId = pendingArtworkAckId
+        blockedTransferMediaKey = pendingArtworkMediaKey
+        synchronized(outgoing) { outgoing.removeAll { it.type == "album_art" } }
+        pendingArtworkAckId = ""
+        pendingArtwork = ""
+        pendingArtworkMediaKey = ""
+        pendingArtworkTransferId = ""
+        pendingArtworkProbeId = ""
+        artworkProbeAttempt = 0
+        artworkSendAttempt = 0
+        artworkLocallySent = false
+        artworkWatchConfirmed = false
+        CommunicationLog.error("TX", "$reason，重试仍失败；保留手环现有封面，停止当前歌曲封面传输 id=$failedId")
+    }
+
+    private fun completeArtworkIfConfirmed() {
+        if (!artworkLocallySent || !artworkWatchConfirmed || pendingArtworkAckId.isBlank()) return
+        val completedId = pendingArtworkAckId
+        handler.removeCallbacks(artworkAckTimeout)
+        handler.removeCallbacks(artworkProbeTimeout)
+        pendingArtworkAckId = ""
+        pendingArtwork = ""
+        pendingArtworkMediaKey = ""
+        pendingArtworkTransferId = ""
+        pendingArtworkProbeId = ""
+        artworkProbeAttempt = 0
+        artworkSendAttempt = 0
+        artworkLocallySent = false
+        artworkWatchConfirmed = false
+        CommunicationLog.info("RX", "专辑图双端确认成功 id=$completedId")
     }
 
     private fun sendJson(json: JSONObject, logTraffic: Boolean = true, urgent: Boolean = false) {
@@ -307,36 +573,49 @@ class WearBridge private constructor(private val context: Context) {
 
     private fun packetsFor(raw: String): List<ByteArray> {
         val rawBytes = raw.toByteArray(Charsets.UTF_8)
-        if (rawBytes.size <= CHUNK_SIZE) return listOf(rawBytes)
+        if (rawBytes.size <= MAX_PACKET_BYTES) return listOf(rawBytes)
         val id = UUID.randomUUID().toString()
-        val parts = chunkUtf8(raw, CHUNK_SIZE)
+        val parts = chunkForPacketBudget(raw, id)
         return parts.mapIndexed { index, part ->
-            JSONObject().put("__c", true).put("id", id).put("i", index).put("t", parts.size).put("d", part).toString().toByteArray(Charsets.UTF_8)
+            chunkPacket(id, index, parts.size, part).also { packet ->
+                check(packet.size <= MAX_PACKET_BYTES) {
+                    "Chunk packet exceeds limit: ${packet.size} > $MAX_PACKET_BYTES"
+                }
+            }
         }
     }
 
-    private fun chunkUtf8(value: String, maxBytes: Int): List<String> {
+    private fun chunkForPacketBudget(value: String, id: String): List<String> {
         if (value.isEmpty()) return listOf("")
         val result = ArrayList<String>()
-        val part = StringBuilder()
-        var partBytes = 0
-        var offset = 0
-        while (offset < value.length) {
-            val codePoint = value.codePointAt(offset)
-            val text = String(Character.toChars(codePoint))
-            val bytes = text.toByteArray(Charsets.UTF_8).size
-            if (partBytes > 0 && partBytes + bytes > maxBytes) {
-                result.add(part.toString())
-                part.setLength(0)
-                partBytes = 0
+        var start = 0
+        while (start < value.length) {
+            var low = start + 1
+            var high = value.length
+            var best = start
+            while (low <= high) {
+                var end = (low + high) ushr 1
+                if (end < value.length && Character.isHighSurrogate(value[end - 1]) && Character.isLowSurrogate(value[end])) end--
+                if (end <= start) { low = start + 2; continue }
+                val candidate = value.substring(start, end)
+                // Placeholder indices are deliberately wider than any real artwork or lyrics transfer.
+                if (chunkPacket(id, 9999, 9999, candidate).size <= MAX_PACKET_BYTES) {
+                    best = end
+                    low = end + 1
+                } else {
+                    high = end - 1
+                }
             }
-            part.append(text)
-            partBytes += bytes
-            offset += Character.charCount(codePoint)
+            check(best > start) { "Unable to fit a code point in an interconnect packet" }
+            result.add(value.substring(start, best))
+            start = best
         }
-        if (part.isNotEmpty()) result.add(part.toString())
         return result
     }
+
+    private fun chunkPacket(id: String, index: Int, total: Int, data: String): ByteArray =
+        JSONObject().put("__c", true).put("id", id).put("i", index).put("t", total).put("d", data)
+            .toString().toByteArray(Charsets.UTF_8)
 
     private fun drainOutgoing() {
         if (sendInFlight) return
@@ -360,15 +639,23 @@ class WearBridge private constructor(private val context: Context) {
                 if (index + 1 < message.packets.size && message.type == "album_art" && hasRealtimeWorkWaiting()) {
                     synchronized(outgoing) {
                         outgoing.removeAll { it.type == "album_art" }
-                        outgoing.addLast(OutboundMessage("album_art", message.packets.subList(index + 1, message.packets.size)))
+                        outgoing.addLast(OutboundMessage("album_art", message.packets.subList(index + 1, message.packets.size), message.onSent))
                     }
                     finishSend()
                 } else if (index + 1 < message.packets.size) sendPacket(message, index + 1)
-                else finishSend()
+                else {
+                    message.onSent?.invoke()
+                    finishSend()
+                }
             }
             .addOnFailureListener {
                 CommunicationLog.error("TX", message.type + " 发送失败 packet=" + (index + 1) + "/" + message.packets.size, it)
-                markQuickAppDisconnected("Quick App 消息通道不可用")
+                if (message.type == "album_art") {
+                    retryArtworkOrAbort("Android 物理发送失败")
+                    finishSend()
+                } else {
+                    markQuickAppDisconnected("Quick App 消息通道不可用")
+                }
             }
     }
 
@@ -394,7 +681,89 @@ class WearBridge private constructor(private val context: Context) {
         pendingLyrics = emptyList()
         lyricsSendAttempt = 0
         handler.removeCallbacks(lyricsAckTimeout)
+        pendingArtworkAckId = ""
+        pendingArtwork = ""
+        pendingArtworkMediaKey = ""
+        pendingArtworkTransferId = ""
+        pendingArtworkProbeId = ""
+        artworkProbeAttempt = 0
+        artworkSendAttempt = 0
+        artworkLocallySent = false
+        artworkWatchConfirmed = false
+        handler.removeCallbacks(artworkAckTimeout)
+        handler.removeCallbacks(artworkProbeTimeout)
         updateState(WearState.DISCONNECTED, reason)
+        scheduleReconnect(RECONNECT_DELAY_MS)
+    }
+
+    private fun softRestartConnectionLayer(reason: String) {
+        CommunicationLog.warn("CONN", "连接层软重启：$reason")
+        discoveryAttempt++
+        handler.removeCallbacks(heartbeat)
+        handler.removeCallbacks(launchRetry)
+        handler.removeCallbacks(lyricsAckTimeout)
+        handler.removeCallbacks(artworkAckTimeout)
+        handler.removeCallbacks(artworkProbeTimeout)
+        handler.removeCallbacks(reconnect)
+        handler.removeCallbacks(softRestart)
+        val oldNodeId = node?.id
+        if (oldNodeId != null) {
+            runCatching { messageApi?.removeListener(oldNodeId) }
+            runCatching { nodeApi?.unsubscribe(oldNodeId, DataItem.ITEM_CONNECTION) }
+        }
+        synchronized(outgoing) { outgoing.clear() }
+        incomingChunks.clear()
+        sendInFlight = false
+        node = null
+        nodeApi = null
+        messageApi = null
+        listenerInstalled = false
+        handshaked = false
+        deviceInfoReceived = false
+        appLaunchedForSession = false
+        sessionId = ""
+        handshakeSent = false
+        lastHeartbeatAck = 0L
+        launchAttempt = 0
+        lastArtworkKey = ""
+        lastLyricsKey = ""
+        pendingLyricsAckId = ""
+        pendingLyrics = emptyList()
+        lyricsSendAttempt = 0
+        pendingArtworkAckId = ""
+        pendingArtwork = ""
+        pendingArtworkMediaKey = ""
+        pendingArtworkTransferId = ""
+        pendingArtworkProbeId = ""
+        artworkProbeAttempt = 0
+        artworkSendAttempt = 0
+        artworkLocallySent = false
+        artworkWatchConfirmed = false
+        blockedTransferMediaKey = ""
+        updateState(WearState.DISCONNECTED, "连接层已重置，正在重新发现设备")
+        handler.postDelayed(softRestart, SOFT_RESTART_DELAY_MS)
+    }
+
+    private fun scheduleReconnect(delayMs: Long) {
+        handler.removeCallbacks(reconnect)
+        handler.postDelayed(reconnect, delayMs)
+    }
+
+    private fun beginReconnectSession() {
+        if (deviceInfoReceived) return
+        handshaked = false
+        appLaunchedForSession = false
+        sessionId = UUID.randomUUID().toString()
+        handshakeSent = false
+        launchAttempt = 0
+        incomingChunks.clear()
+        updateState(WearState.CONNECTING, "检测到断开，正在重新打开 Quick App")
+        if (node != null && listenerInstalled) {
+            launchQuickAppUntilReady()
+        } else {
+            updateState(WearState.DISCONNECTED, "互联节点不可用，正在重新发现")
+            start()
+        }
     }
 
     private fun handleIncoming(raw: String) {
@@ -424,6 +793,7 @@ class WearBridge private constructor(private val context: Context) {
                 if (!handshaked || deviceInfoReceived || json.optString("session") != sessionId) return
                 deviceInfoReceived = true
                 handler.removeCallbacks(launchRetry)
+                handler.removeCallbacks(reconnect)
                 val model = json.optString("model").ifBlank { json.optString("product") }
                 CommunicationLog.info("CONN", "收到 Quick App 设备信息，通信就绪${if (model.isBlank()) "" else ": $model"}")
                 sendJson(JSONObject().put("type", "device_info_ack").put("session", sessionId).put("version", 1), false)
@@ -439,8 +809,66 @@ class WearBridge private constructor(private val context: Context) {
             "asset_ack" -> {
                 val asset = json.optString("asset")
                 val id = json.optString("id")
-                if (json.optBoolean("ok")) CommunicationLog.info("RX", "$asset 已写入手环 id=$id")
+                val transferId = json.optString("tx")
+                val ok = json.optBoolean("ok")
+                val code = json.optString("code").lowercase()
+                var artworkAckVerified = false
+                if (!ok && asset == "artwork" && (code == "invalid_jpeg" || code == "invalid_jepg")) {
+                    CommunicationLog.error("RX", "检测到旧版 JPEG 快应用协议 code=$code；当前 Android 仅发送 PNG，请更新 RPK")
+                    softRestartConnectionLayer("检测到旧版封面协议 $code")
+                    return
+                }
+                if (asset == "artwork" && id == pendingArtworkAckId && transferId == pendingArtworkTransferId) {
+                    if (ok) {
+                        val pendingBytes = runCatching {
+                            Base64.decode(pendingArtwork.substringAfter(',', pendingArtwork), Base64.DEFAULT)
+                        }.getOrNull()
+                        val expectedSum = pendingBytes?.let { Adler32().apply { update(it) }.value }
+                        val ackVerified = json.optString("verified") == "png_structure_v1"
+                        val ackFormat = json.optString("format") == "png"
+                        val ackUri = json.optString("uri")
+                        val ackMatches = pendingBytes != null &&
+                            json.optInt("bytes", -1) == pendingBytes.size &&
+                            json.optLong("sum", -1L) == expectedSum &&
+                            ackVerified && ackFormat && ackUri.endsWith(".png")
+                        if (ackMatches) {
+                            artworkAckVerified = true
+                            artworkWatchConfirmed = true
+                            completeArtworkIfConfirmed()
+                        } else {
+                            retryArtworkOrAbort("手环封面确认内容不匹配或未完成 PNG 发布验证")
+                        }
+                    } else retryArtworkOrAbort("手环写入确认失败 code=${json.optString("code")}")
+                }
+                if (ok && asset != "artwork") CommunicationLog.info("RX", "$asset 已写入手环 id=$id")
+                else if (artworkAckVerified) CommunicationLog.info("RX", "手环已校验并发布 PNG 封面 id=$id")
+                else if (ok) CommunicationLog.warn("RX", "忽略未通过完整性校验的封面成功回执 id=$id")
                 else CommunicationLog.warn("RX", "$asset 写入失败 id=$id code=${json.optString("code")}")
+            }
+            "artwork_probe_result" -> {
+                val requestId = json.optString("requestId")
+                val id = json.optString("id")
+                if (requestId != pendingArtworkProbeId || id != pendingArtworkAckId || pendingArtwork.isBlank()) return
+                handler.removeCallbacks(artworkProbeTimeout)
+                pendingArtworkProbeId = ""
+                val pendingBytes = runCatching { Base64.decode(pendingArtwork.substringAfter(',', pendingArtwork), Base64.DEFAULT) }.getOrNull() ?: return
+                val expectedSum = Adler32().apply { update(pendingBytes) }.value
+                val metadataMatches = json.optString("format") == "png" &&
+                    json.optInt("bytes", -1) == pendingBytes.size &&
+                    json.optLong("sum", -1L) == expectedSum
+                if (json.optBoolean("cached") && metadataMatches) {
+                    artworkLocallySent = true
+                    artworkWatchConfirmed = true
+                    CommunicationLog.info("RX", "手环已显示相同封面，跳过上传 id=$id")
+                    completeArtworkIfConfirmed()
+                } else if (!json.optBoolean("cached") && json.optBoolean("retained") && metadataMatches) {
+                    CommunicationLog.info("RX", "手环未命中相同封面，旧封面继续保留；开始上传替换图 id=$id")
+                    sendAlbumArt(pendingArtworkAckId, pendingArtwork, true)
+                } else {
+                    CommunicationLog.warn("RX", "封面预检响应无效，重新校验 id=$id")
+                    if (artworkProbeAttempt < MAX_ARTWORK_PROBE_ATTEMPTS) probeArtworkOnWatch()
+                    else CommunicationLog.error("TX", "封面预检失败，已停止上传 id=$id")
+                }
             }
             "lyrics_ack" -> {
                 val id = json.optString("id")
@@ -452,6 +880,10 @@ class WearBridge private constructor(private val context: Context) {
                     lyricsSendAttempt = 0
                 }
                 CommunicationLog.info("RX", "手环已接收完整歌词 id=$id lines=$lines")
+            }
+            "cache_clear_ack" -> {
+                CommunicationLog.warn("RX", "手环已清空媒体缓存 reason=${json.optString("reason")}")
+                softRestartConnectionLayer("手环媒体缓存已清空")
             }
             "sync_ack" -> {
                 val sentAt = json.optLong("sentAt")
@@ -480,6 +912,10 @@ class WearBridge private constructor(private val context: Context) {
         handler.removeCallbacks(heartbeat)
         handler.removeCallbacks(launchRetry)
         handler.removeCallbacks(lyricsAckTimeout)
+        handler.removeCallbacks(artworkAckTimeout)
+        handler.removeCallbacks(artworkProbeTimeout)
+        handler.removeCallbacks(reconnect)
+        handler.removeCallbacks(softRestart)
         handler.removeCallbacksAndMessages(null)
         node?.id?.let { id -> messageApi?.removeListener(id); nodeApi?.unsubscribe(id, DataItem.ITEM_CONNECTION) }
         synchronized(outgoing) { outgoing.clear() }
@@ -489,6 +925,16 @@ class WearBridge private constructor(private val context: Context) {
         pendingLyricsAckId = ""
         pendingLyrics = emptyList()
         lyricsSendAttempt = 0
+        pendingArtworkAckId = ""
+        pendingArtwork = ""
+        pendingArtworkMediaKey = ""
+        pendingArtworkTransferId = ""
+        pendingArtworkProbeId = ""
+        artworkProbeAttempt = 0
+        artworkSendAttempt = 0
+        artworkLocallySent = false
+        artworkWatchConfirmed = false
+        blockedTransferMediaKey = ""
         realtimeSequence = 0L
         lastLatencyLogAt = 0L
         node = null; listenerInstalled = false; handshaked = false; deviceInfoReceived = false; appLaunchedForSession = false; sessionId = ""; handshakeSent = false

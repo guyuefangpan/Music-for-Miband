@@ -78,9 +78,11 @@ class MainActivity : ComponentActivity() {
                             0 -> NowPlayingPage(media, permission)
                             1 -> LyricsPage(media)
                             2 -> LogPage(logs)
-                            else -> SettingsPage(wear, permission,
+                            else -> SettingsPage(wear, permission, media,
                                 { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
-                                bridge::start, bridge::stop)
+                                bridge::start, bridge::stop,
+                                { bridge.forceSyncArtwork(SystemMediaMonitor.currentState()); Unit },
+                                { bridge.forceSyncLyrics(SystemMediaMonitor.currentState()); Unit })
                         }
                     }
                 }
@@ -211,8 +213,8 @@ private fun LogPage(logs: List<CommunicationLogEntry>) {
 }
 
 @Composable
-private fun SettingsPage(wear: WearState, permission: Boolean, openPermission: () -> Unit,
-    reconnect: () -> Unit, disconnect: () -> Unit) {
+private fun SettingsPage(wear: WearState, permission: Boolean, media: SystemMediaState, openPermission: () -> Unit,
+    reconnect: () -> Unit, disconnect: () -> Unit, syncArtwork: () -> Unit, syncLyrics: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("设置", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -230,6 +232,26 @@ private fun SettingsPage(wear: WearState, permission: Boolean, openPermission: (
         }
         Button(openPermission, Modifier.fillMaxWidth().height(52.dp)) {
             Text(if (permission) "管理通知访问权限" else "开启通知访问权限")
+        }
+        Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(8.dp)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Debug", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("当前：" + media.title.ifBlank { "暂无播放" }, color = Muted, fontSize = 13.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(syncArtwork, Modifier.weight(1f), enabled = wear == WearState.CONNECTED && media.albumArt.isNotBlank()) {
+                        Icon(Icons.Default.Image, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("同步封面")
+                    }
+                    OutlinedButton(syncLyrics, Modifier.weight(1f), enabled = wear == WearState.CONNECTED && media.lyrics.isNotEmpty()) {
+                        Icon(Icons.Default.Lyrics, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("同步歌词")
+                    }
+                }
+                Text("封面 ${if (media.albumArt.isBlank()) "无" else "有"} · 歌词 ${media.lyrics.size} 行", color = Muted, fontSize = 12.sp)
+            }
         }
         Text("starry 1.0.0\n读取系统媒体并同步到小米手环。", color = Muted, fontSize = 12.sp,
             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())

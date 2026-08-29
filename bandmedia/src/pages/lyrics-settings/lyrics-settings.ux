@@ -1,0 +1,39 @@
+<template>
+  <div class="lyrics-settings-page">
+    <div class="top-bar"><div class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div><text class="page-title">歌词</text><text class="clock">{{clock}}</text></div>
+    <div class="settings-card">
+      <div class="font-icon"><text class="font-symbol">Tᵀ</text></div>
+      <text class="setting-title">字号</text>
+      <div class="preview">
+        <text class="preview-muted preview-one" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">我要把</text>
+        <text class="preview-muted preview-two" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">少年幻想变成蓝天的纽扣</text>
+        <text class="preview-active" style="font-size:{{fontSize}}px;line-height:{{previewLineHeight}}px">陪着晚上摇曳笔尖的右手</text>
+        <text class="preview-muted preview-three" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">走街串巷舞文弄墨也不够</text>
+        <text class="preview-muted preview-four" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">直到能把答案说出口</text>
+      </div>
+      <div class="adjust-button plus" onclick="increase"><div class="horizontal"></div><div class="vertical"></div></div>
+      <text class="font-value">{{fontSize}}px</text>
+      <div class="adjust-button minus" onclick="decrease"><div class="horizontal"></div></div>
+    </div>
+  </div>
+</template>
+<script>
+import { readLyricsFontSize, writeLyricsFontSize, MIN_LYRICS_FONT_SIZE, MAX_LYRICS_FONT_SIZE } from "../../common/lyrics.js"
+import { replacePage } from "../../common/navigation.js"
+export default {
+  private: { clock: "--:--", fontSize: 20, mutedFontSize: 17, previewLineHeight: 28 },
+  onInit() { this.refreshClock(); this.load(); this.timer = setInterval(() => this.refreshClock(), 1000) },
+  onShow() { this.load() },
+  onDestroy() { if (this.timer) clearInterval(this.timer) },
+  refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
+  load() { readLyricsFontSize(value => this.applySize(value)) },
+  applySize(value) { this.fontSize = value; this.mutedFontSize = Math.max(12, value - 3); this.previewLineHeight = Math.max(24, value + 8) },
+  setSize(value) { const next = Math.max(MIN_LYRICS_FONT_SIZE, Math.min(MAX_LYRICS_FONT_SIZE, value)); this.applySize(next); writeLyricsFontSize(next) },
+  increase() { this.setSize(this.fontSize + 1) },
+  decrease() { this.setSize(this.fontSize - 1) },
+  back() { replacePage("/pages/settings") }
+}
+</script>
+<style>
+text,input{font-family:MiSans,sans-serif}.lyrics-settings-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;overflow:hidden}.top-bar{position:absolute;left:0;top:0;width:336px;height:78px;background-color:#000}.back-button{position:absolute;left:8px;top:8px;width:68px;height:62px;align-items:center;justify-content:center}.back-icon{width:40px;height:40px}.page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}.clock{position:absolute;right:26px;top:13px;width:58px;color:#f2f2f2;font-size:17px;font-weight:500;line-height:22px;text-align:right}.settings-card{position:absolute;left:16px;top:89px;width:304px;height:375px;border-radius:34px;background-color:#303030;overflow:hidden}.font-icon{position:absolute;left:15px;top:14px;width:60px;height:60px;border-radius:30px;background-color:#719ff0;align-items:center;justify-content:center}.font-symbol{width:60px;color:#fff;font-size:35px;font-weight:500;text-align:center;line-height:44px}.setting-title{position:absolute;left:88px;top:24px;width:170px;color:#fff;font-size:29px;line-height:38px}.preview{position:absolute;left:17px;top:81px;width:270px;height:226px;overflow:hidden}.preview-muted,.preview-active{position:absolute;left:0;width:270px;text-align:center;lines:1;text-overflow:ellipsis;letter-spacing:0}.preview-muted{color:#777}.preview-active{top:102px;color:#fff}.preview-one{top:0}.preview-two{top:48px}.preview-three{top:150px}.preview-four{top:198px}.adjust-button{position:absolute;bottom:7px;width:72px;height:62px;align-items:center;justify-content:center}.plus{left:10px}.minus{right:10px}.horizontal{position:absolute;width:31px;height:5px;border-radius:3px;background-color:#fff}.vertical{position:absolute;width:5px;height:31px;border-radius:3px;background-color:#fff}.font-value{position:absolute;left:102px;bottom:19px;width:100px;color:#fff;font-size:30px;line-height:40px;text-align:center}
+</style>

@@ -10,7 +10,7 @@
 
     <scroll class="about-scroll" scroll-y="true">
       <div class="about-content">
-        <div class="product-card">
+        <div class="product-card" onclick="openDebug">
           <text class="product-name">Starry</text>
           <text class="product-description">歌词显示器</text>
           <text class="product-version">ver1.0.0</text>
@@ -19,7 +19,7 @@
 
         <div class="qq-card">
           <text class="qq-title">QQ交流群</text>
-          <text class="qq-number">123456789</text>
+          <text class="qq-number">194377205</text>
         </div>
 
         <div class="credits-card">
@@ -36,11 +36,12 @@
 </template>
 
 <script>
-import router from "@system.router"
+import { replacePage } from "../../common/navigation.js"
 
 export default {
   private: {
-    clock: "--:--"
+    clock: "--:--",
+    debugTapCount: 0
   },
   onInit() {
     this.refreshClock()
@@ -48,13 +49,25 @@ export default {
   },
   onDestroy() {
     if (this.timer) clearInterval(this.timer)
+    if (this.debugTapTimer) clearTimeout(this.debugTapTimer)
   },
   refreshClock() {
     const date = new Date()
     this.clock = ("0" + date.getHours()).slice(-2) + ":" + ("0" + date.getMinutes()).slice(-2)
   },
+  openDebug() {
+    if (this.debugTapTimer) clearTimeout(this.debugTapTimer)
+    this.debugTapCount++
+    if (this.debugTapCount >= 20) {
+      this.debugTapCount = 0
+      this.debugTapTimer = null
+      replacePage("/pages/debug")
+      return
+    }
+    this.debugTapTimer = setTimeout(() => { this.debugTapCount = 0; this.debugTapTimer = null }, 5000)
+  },
   back() {
-    router.back()
+    replacePage("/pages/settings")
   }
 }
 </script>

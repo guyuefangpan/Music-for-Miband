@@ -15,8 +15,10 @@ const HEARTBEAT_ACK = "heartbeatAck"
 const MEDIA_STATE_KEY = "bandmedia_media_state_v1"
 const LYRICS_KEY = "bandmedia_lyrics_v1"
 const CONNECTION_KEY = "starry_interconnect_seen_v1"
-const COVER_FILE_A = "internal://files/starry-cover-a.jpg"
-const COVER_FILE_B = "internal://files/starry-cover-b.jpg"
+const COVER_FILE_A = "internal://files/starry-cover-a.png"
+const COVER_FILE_B = "internal://files/starry-cover-b.png"
+const LEGACY_COVER_FILE_A = "internal://files/starry-cover-a.jpg"
+const LEGACY_COVER_FILE_B = "internal://files/starry-cover-b.jpg"
 
 export default {
   onCreate() {
@@ -38,8 +40,46 @@ export default {
     this.lastSyncAckAt = 0
     this.lastWatchHeartbeatAckAt = 0
     this.albumArtChunks = {}
+    this.publishedArtwork = { id: "", uri: "", bytes: 0, sum: 0, format: "" }
     this.lyricsGroups = {}
-    this.coverSlot = false
+    this.trackCleanupTimers = []
+    this.startupCleanupDone = false
+    this.cleanupStartupCaches(() => {
+      if (this.destroyed) return
+      this.startupCleanupDone = true
+      this.startCommunication()
+    })
+    brightness.setKeepScreenOn({ keepScreenOn: true, success: () => {}, fail: () => {}, complete: () => {} })
+    console.log("app created")
+  },
+  cleanupStartupCaches(done) {
+    this.chunks = {}
+    this.albumArtChunks = {}
+    this.lyricsGroups = {}
+    this.lastMediaState = null
+    this.pendingMediaState = null
+    this.lastStoredMediaKey = ""
+    const tasks = [
+      complete => storage.delete({ key: MEDIA_STATE_KEY, success: () => {}, fail: () => {}, complete: complete }),
+      complete => storage.delete({ key: LYRICS_KEY, success: () => {}, fail: () => {}, complete: complete }),
+      complete => file.delete({ uri: COVER_FILE_A, success: () => {}, fail: () => {}, complete: complete }),
+      complete => file.delete({ uri: COVER_FILE_B, success: () => {}, fail: () => {}, complete: complete }),
+      complete => file.delete({ uri: LEGACY_COVER_FILE_A, success: () => {}, fail: () => {}, complete: complete }),
+      complete => file.delete({ uri: LEGACY_COVER_FILE_B, success: () => {}, fail: () => {}, complete: complete })
+    ]
+    let remaining = tasks.length
+    const complete = () => {
+      remaining -= 1
+      if (remaining === 0) {
+        console.log("startup media cache cleared")
+        done()
+      }
+    }
+    for (let i = 0; i < tasks.length; i++) {
+      try { tasks[i](complete) } catch (error) { complete() }
+    }
+  },
+  startCommunication() {
     this.conn = interconnect.instance()
     this.conn.onmessage = messageObj => {
       if (!this.destroyed) this.handleAndroidMessage(messageObj && messageObj.data !== undefined ? messageObj.data : messageObj)
@@ -69,7 +109,6 @@ export default {
       this.deviceInfoSent = false
       this.markConnected(false)
     }
-    brightness.setKeepScreenOn({ keepScreenOn: true, success: () => {}, fail: () => {}, complete: () => {} })
     this.watchHeartbeatTimer = setInterval(() => {
       if (this.destroyed || !this.connected || !this.ready) return
       if (this.lastWatchHeartbeatAckAt > 0 && Date.now() - this.lastWatchHeartbeatAckAt > 15000) {
@@ -78,7 +117,6 @@ export default {
       }
       this.send({ type: HEARTBEAT, origin: "watch", timestamp: Date.now() })
     }, 5000)
-    console.log("app created")
   },
   handleAndroidMessage(data) {
     let message = data
@@ -93,7 +131,7 @@ export default {
       if (!id || total < 1 || total > 512 || index < 0 || index >= total) return
       let group = this.chunks[id]
       if (!group || group.total !== total) {
-        group = { total: total, count: 0, parts: [] }
+        group = { total: total, count: 0, parts: [], createdAt: Date.now() }
         this.chunks[id] = group
       }
       if (typeof group.parts[index] !== "string") group.count += 1
@@ -107,6 +145,7 @@ export default {
     }
     if (!message.type) return
     if (message.type === "album_art") { if (this.ready) this.handleAlbumArt(message); return }
+    if (message.type === "artwork_probe") { if (this.ready) this.handleArtworkProbe(message); return }
     if (message.type === HANDSHAKE) {
       this.connected = true
       const session = String(message.session || "")
@@ -127,6 +166,7 @@ export default {
       this.ready = true
       this.lastWatchHeartbeatAckAt = Date.now()
       this.markConnected(true)
+      this.requestMusicOnce()
     } else if (message.type === HEARTBEAT) {
       if (!this.ready) return
       this.markConnected(true)
@@ -137,7 +177,9 @@ export default {
       this.markConnected(true)
     } else if (message.type === "music_info") {
       if (!this.ready) return
+      const previous = this.lastMediaState
       const state = this.safeMediaState(message)
+      if (previous && previous.mediaKey && previous.mediaKey !== state.mediaKey) this.schedulePreviousTrackCleanup(previous, state.mediaKey, Date.now())
       this.lastMediaState = state
       this.publishRealtimeState()
       this.persistMediaState(state)
@@ -176,6 +218,11 @@ export default {
       storage.set({ key: LYRICS_KEY, value: JSON.stringify({ id: "", lines: [] }), success: () => {}, fail: () => {}, complete: () => {} })
       this.lastMediaState = null
       this.markConnected(true)
+    } else if (message.type === "clear_media_cache") {
+      if (!this.ready) return
+      this.clearAllMediaCaches(() => {
+        this.send({ type: "cache_clear_ack", reason: String(message.reason || ""), id: String(message.id || "") })
+      })
     } else if (message.type === STORAGE_READ) {
       if (!this.ready) return
       storage.get({ key: message.key, success: value => this.send({ type: STORAGE_READ_RESULT, key: message.key, value: typeof value === "string" ? value : JSON.stringify(value || {}), requestId: message.requestId }), fail: () => this.send({ type: STORAGE_READ_RESULT, key: message.key, value: "", requestId: message.requestId, error: true }), complete: () => {} })
@@ -223,28 +270,193 @@ export default {
   getRealtimeMediaState() {
     return { state: this.lastMediaState, connected: this.ready && this.connected, version: this.realtimeVersion }
   },
+  handleArtworkProbe(message) {
+    const requestId = String(message.requestId || "")
+    const id = String(message.id || "")
+    const expectedBytes = Number(message.bytes || 0)
+    const expectedSum = Number(message.sum || 0)
+    const format = String(message.format || "")
+    if (!requestId || !id || format !== "png" || expectedBytes < 1) return
+    const published = this.publishedArtwork || {}
+    const currentUri = this.lastMediaState ? String(this.lastMediaState.albumArt || "") : ""
+    const publishedUri = String(published.uri || "")
+    const cached = String(published.id || "") === id && publishedUri.slice(-4) === ".png" && Number(published.bytes || 0) === expectedBytes && Number(published.sum || 0) === expectedSum && String(published.format || "") === "png"
+    if (cached) {
+      if (this.lastMediaState && currentUri !== publishedUri) {
+        this.lastMediaState.albumArt = publishedUri
+        this.persistMediaState(this.lastMediaState)
+        this.publishRealtimeState()
+      }
+      this.send({ type: "artwork_probe_result", requestId: requestId, id: id, cached: true, cleared: false, format: "png", bytes: expectedBytes, sum: expectedSum, uri: publishedUri })
+      return
+    }
+    // A cache miss must not destroy the currently displayed cover. The new PNG
+    // is written to a unique URI and replaces this one only after validation.
+    this.albumArtChunks = {}
+    this.send({ type: "artwork_probe_result", requestId: requestId, id: id, cached: false, retained: true, format: "png", bytes: expectedBytes, sum: expectedSum })
+  },
   handleAlbumArt(message) {
     const id = String(message.id || "")
+    const transferId = String(message.tx || "")
     const total = Number(message.t || 0)
     const index = Number(message.i)
-    if (!id || total < 1 || total > 3 || index < 0 || index >= total) return
+    const expectedChars = Number(message.chars || 0)
+    const expectedBytes = Number(message.bytes || 0)
+    const expectedSum = Number(message.sum || 0)
+    const format = String(message.format || "")
+    if (!id || !transferId || format !== "png" || total < 1 || total > 3 || index < 0 || index >= total || expectedChars < 1 || expectedBytes < 1) return
     if (!this.lastMediaState || this.lastMediaState.artworkId !== id) return
-    let group = this.albumArtChunks[id]
-    if (!group || group.total !== total) { group = { total: total, count: 0, parts: [] }; this.albumArtChunks[id] = group }
+    const groupKey = id + "|" + transferId
+    let group = this.albumArtChunks[groupKey]
+    if (!group || group.total !== total || group.chars !== expectedChars || group.bytes !== expectedBytes || group.sum !== expectedSum) {
+      for (const key in this.albumArtChunks) { if (key.indexOf(id + "|") === 0) delete this.albumArtChunks[key] }
+      group = { total: total, count: 0, parts: [], chars: expectedChars, bytes: expectedBytes, sum: expectedSum }
+      this.albumArtChunks[groupKey] = group
+    }
     if (typeof group.parts[index] !== "string") group.count += 1
     group.parts[index] = String(message.d || "")
     if (group.count !== total) return
-    delete this.albumArtChunks[id]
+    delete this.albumArtChunks[groupKey]
     const dataUri = group.parts.join("")
+    if (dataUri.length !== expectedChars) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "length_mismatch" }); return }
     const encoded = dataUri.indexOf(",") >= 0 ? dataUri.slice(dataUri.indexOf(",") + 1) : dataUri
     if (!encoded) { this.lastMediaState.albumArt = ""; this.persistMediaState(this.lastMediaState); return }
     try {
       const bytes = this.decodeBase64(encoded)
-      if (!bytes || !bytes.length) { this.send({ type: "asset_ack", asset: "artwork", id: id, ok: false, code: "decode_empty" }); return }
-      this.coverSlot = !this.coverSlot
-      const coverFile = this.coverSlot ? COVER_FILE_A : COVER_FILE_B
-      file.writeArrayBuffer({ uri: coverFile, buffer: bytes, append: false, success: () => { if (!this.destroyed && this.lastMediaState && this.lastMediaState.artworkId === id) { this.lastMediaState.albumArt = coverFile; this.persistMediaState(this.lastMediaState); this.send({ type: "asset_ack", asset: "artwork", id: id, ok: true, bytes: bytes.length }) } }, fail: (error, code) => { console.log("cover write failed code=" + String(code || "") + " " + JSON.stringify(error || {})); this.send({ type: "asset_ack", asset: "artwork", id: id, ok: false, code: "write_" + String(code || "failed") }) }, complete: () => {} })
-    } catch (error) { console.log("cover decode failed " + String(error)); this.send({ type: "asset_ack", asset: "artwork", id: id, ok: false, code: "decode_failed" }) }
+      if (!bytes || !bytes.length) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "decode_empty" }); return }
+      if (bytes.length !== expectedBytes) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "byte_length_mismatch" }); return }
+      if (this.adler32(bytes) !== expectedSum) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "checksum_mismatch" }); return }
+      if (!this.validatePngStructure(bytes)) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "invalid_png_structure" }); return }
+      const safeTransferId = transferId.replace(/[^0-9A-Za-z_-]/g, "").slice(0, 64)
+      if (!safeTransferId) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "invalid_transfer_id" }); return }
+      // A unique URI prevents the Vela image decoder from serving pixels cached for an older transfer.
+      const coverFile = "internal://files/starry-cover-" + safeTransferId + ".png"
+      file.writeArrayBuffer({
+        uri: coverFile,
+        buffer: bytes.buffer,
+        append: false,
+        success: () => {
+          if (this.destroyed || !this.lastMediaState || this.lastMediaState.artworkId !== id) {
+            file.delete({ uri: coverFile, success: () => {}, fail: () => {}, complete: () => {} })
+            this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "stale_track" })
+            return
+          }
+          const previousCover = String((this.publishedArtwork || {}).uri || this.lastMediaState.albumArt || "")
+          this.lastMediaState.albumArt = coverFile
+          this.publishedArtwork = { id: id, uri: coverFile, bytes: bytes.length, sum: expectedSum, format: "png" }
+          this.publishRealtimeState()
+          this.persistMediaState(this.lastMediaState)
+          setTimeout(() => {
+            if (this.destroyed || !this.lastMediaState || this.lastMediaState.artworkId !== id || this.lastMediaState.albumArt !== coverFile) {
+              this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "publish_replaced" })
+              return
+            }
+            this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: true, bytes: bytes.length, sum: expectedSum, format: "png", verified: "png_structure_v1", uri: coverFile })
+            if (previousCover && previousCover !== coverFile) {
+              setTimeout(() => {
+                if (!this.destroyed && (!this.lastMediaState || this.lastMediaState.albumArt !== previousCover)) file.delete({ uri: previousCover, success: () => {}, fail: () => {}, complete: () => {} })
+              }, 5000)
+            }
+          }, 200)
+        },
+        fail: (error, code) => { console.log("cover write failed code=" + String(code || "") + " " + JSON.stringify(error || {})); this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "write_" + String(code || "failed") }) },
+        complete: () => {}
+      })
+    } catch (error) { console.log("cover decode failed " + String(error)); this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "decode_failed" }) }
+  },
+  adler32(bytes) {
+    let a = 1
+    let b = 0
+    for (let i = 0; i < bytes.length; i++) { a = (a + bytes[i]) % 65521; b = (b + a) % 65521 }
+    return b * 65536 + a
+  },
+  validatePngStructure(bytes) {
+    if (!bytes || bytes.length < 45 || bytes[0] !== 137 || bytes[1] !== 80 || bytes[2] !== 78 || bytes[3] !== 71 || bytes[4] !== 13 || bytes[5] !== 10 || bytes[6] !== 26 || bytes[7] !== 10) return false
+    let offset = 8
+    let chunkIndex = 0
+    let hasIdat = false
+    while (offset + 12 <= bytes.length) {
+      const length = bytes[offset] * 16777216 + bytes[offset + 1] * 65536 + bytes[offset + 2] * 256 + bytes[offset + 3]
+      if (length < 0 || offset + 12 + length > bytes.length) return false
+      const type = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7])
+      if (chunkIndex === 0) {
+        if (type !== "IHDR" || length !== 13) return false
+        const width = bytes[offset + 8] * 16777216 + bytes[offset + 9] * 65536 + bytes[offset + 10] * 256 + bytes[offset + 11]
+        const height = bytes[offset + 12] * 16777216 + bytes[offset + 13] * 65536 + bytes[offset + 14] * 256 + bytes[offset + 15]
+        if (width < 1 || height < 1 || width > 2048 || height > 2048) return false
+      }
+      if (type === "IDAT") hasIdat = true
+      offset += length + 12
+      chunkIndex += 1
+      if (type === "IEND") return length === 0 && hasIdat && offset === bytes.length
+      if (chunkIndex > 2048) return false
+    }
+    return false
+  },
+  schedulePreviousTrackCleanup(previous, currentMediaKey, switchedAt) {
+    const oldMediaKey = String(previous.mediaKey || "")
+    const oldArtworkId = String(previous.artworkId || "")
+    const oldLyricsId = String(previous.lyricsId || "")
+    const timer = setTimeout(() => {
+      this.trackCleanupTimers = this.trackCleanupTimers.filter(item => item !== timer)
+      if (this.destroyed) return
+      for (const chunkId in this.chunks) {
+        const group = this.chunks[chunkId]
+        if (group && Number(group.createdAt || 0) <= switchedAt) delete this.chunks[chunkId]
+      }
+      if (oldArtworkId) { for (const key in this.albumArtChunks) { if (key.indexOf(oldArtworkId + "|") === 0) delete this.albumArtChunks[key] } }
+      if (oldLyricsId) delete this.lyricsGroups[oldLyricsId]
+      // Artwork files are retired only after a replacement PNG has been fully
+      // written, published and acknowledged. A track timer must not delete them.
+      this.deleteStoredTrackIfMatching(MEDIA_STATE_KEY, "mediaKey", oldMediaKey)
+      this.deleteStoredTrackIfMatching(LYRICS_KEY, "id", oldLyricsId)
+      console.log("previous track cache cleared old=" + oldMediaKey + " current=" + currentMediaKey)
+    }, 5000)
+    this.trackCleanupTimers.push(timer)
+  },
+  deleteStoredTrackIfMatching(key, field, expected) {
+    if (!expected) return
+    storage.get({
+      key: key,
+      success: value => {
+        if (this.destroyed) return
+        try {
+          const parsed = typeof value === "string" ? JSON.parse(value) : (value || {})
+          if (String(parsed[field] || "") === expected) {
+            storage.delete({ key: key, success: () => {}, fail: () => {}, complete: () => {} })
+          }
+        } catch (error) {}
+      },
+      fail: () => {},
+      complete: () => {}
+    })
+  },
+  clearAllMediaCaches(done) {
+    const activeCover = this.lastMediaState ? String(this.lastMediaState.albumArt || "") : String((this.publishedArtwork || {}).uri || "")
+    this.chunks = {}
+    this.albumArtChunks = {}
+    this.lyricsGroups = {}
+    this.lastMediaState = null
+    this.publishedArtwork = { id: "", uri: "", bytes: 0, sum: 0, format: "" }
+    this.pendingMediaState = null
+    this.lastStoredMediaKey = ""
+    this.publishRealtimeState()
+    const tasks = [
+      complete => storage.delete({ key: MEDIA_STATE_KEY, success: () => {}, fail: () => {}, complete: complete }),
+      complete => storage.delete({ key: LYRICS_KEY, success: () => {}, fail: () => {}, complete: complete }),
+      complete => file.delete({ uri: COVER_FILE_A, success: () => {}, fail: () => {}, complete: complete }),
+      complete => file.delete({ uri: COVER_FILE_B, success: () => {}, fail: () => {}, complete: complete }),
+      complete => file.delete({ uri: LEGACY_COVER_FILE_A, success: () => {}, fail: () => {}, complete: complete }),
+      complete => file.delete({ uri: LEGACY_COVER_FILE_B, success: () => {}, fail: () => {}, complete: complete })
+    ]
+    if (activeCover && activeCover !== COVER_FILE_A && activeCover !== COVER_FILE_B && activeCover !== LEGACY_COVER_FILE_A && activeCover !== LEGACY_COVER_FILE_B) {
+      tasks.push(complete => file.delete({ uri: activeCover, success: () => {}, fail: () => {}, complete: complete }))
+    }
+    let remaining = tasks.length
+    const complete = () => { remaining -= 1; if (remaining === 0 && done) done() }
+    for (let i = 0; i < tasks.length; i++) {
+      try { tasks[i](complete) } catch (error) { complete() }
+    }
   },
   decodeBase64(value) {
     const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -288,10 +500,10 @@ export default {
       success: info => {
         if (this.destroyed) return
         const data = info || {}
-        this.send({ type: "device_info", session: this.sessionId, product: data.product || data.brand || data.manufacturer || "", model: data.model || "", screenWidth: data.screenWidth || data.width || 0, screenHeight: data.screenHeight || data.height || 0, screenShape: data.screenShape || "" })
+        this.send({ type: "device_info", session: this.sessionId, protocolVersion: 2, artworkFormat: "png", product: data.product || data.brand || data.manufacturer || "", model: data.model || "", screenWidth: data.screenWidth || data.width || 0, screenHeight: data.screenHeight || data.height || 0, screenShape: data.screenShape || "" })
       },
       fail: () => {
-        if (!this.destroyed) this.send({ type: "device_info", session: this.sessionId, product: "", model: "", screenWidth: 0, screenHeight: 0, screenShape: "" })
+        if (!this.destroyed) this.send({ type: "device_info", session: this.sessionId, protocolVersion: 2, artworkFormat: "png", product: "", model: "", screenWidth: 0, screenHeight: 0, screenShape: "" })
       },
       complete: () => {}
     })
@@ -330,6 +542,7 @@ export default {
     const state = {
       version: 1,
       type: "music_info",
+      mediaKey: String(message.mediaKey || [message.sourcePackage || "", message.title || "", message.artist || "", message.album || ""].join("|")),
       title: String(message.title || "").slice(0, 160),
       artist: String(message.artist || "").slice(0, 160),
       album: String(message.album || "").slice(0, 160),
@@ -349,11 +562,23 @@ export default {
     }
     state.artworkId = String(message.artworkId || "")
     state.lyricsId = String(message.lyricsId || "")
-    if (previous && previous.artworkId === state.artworkId) {
+    if (state.artworkId && previous && previous.mediaKey === state.mediaKey && previous.artworkId === state.artworkId) {
       state.albumArt = previous.albumArt || ""
     }
-    if (previous && previous.lyricsId === state.lyricsId) {
+    if (state.artworkId && !state.albumArt && this.publishedArtwork && this.publishedArtwork.uri) {
+      // Keep the last verified cover visible until this track's replacement
+      // has been fully written, validated and acknowledged.
+      state.albumArt = String(this.publishedArtwork.uri || "")
+    }
+    if (state.lyricsId && previous && previous.mediaKey === state.mediaKey && previous.lyricsId === state.lyricsId) {
       state.lyrics = previous.lyrics || []
+    }
+    if (!state.artworkId) state.albumArt = ""
+    if (!state.lyricsId) state.lyrics = []
+    if (!previous || previous.mediaKey !== state.mediaKey) {
+      this.albumArtChunks = {}
+      this.lyricsGroups = {}
+      this.persistLyrics(state.lyricsId, [])
     }
     this.lastMediaState = state
     this.applyLyricWindow(message)
@@ -384,6 +609,8 @@ export default {
     }
     this.conn = null
     if (this.watchHeartbeatTimer) clearInterval(this.watchHeartbeatTimer)
+    for (let i = 0; i < this.trackCleanupTimers.length; i++) clearTimeout(this.trackCleanupTimers[i])
+    this.trackCleanupTimers = []
     brightness.setKeepScreenOn({ keepScreenOn: false, success: () => {}, fail: () => {}, complete: () => {} })
     console.log("app destroyed")
   }
