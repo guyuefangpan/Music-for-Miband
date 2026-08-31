@@ -1,19 +1,20 @@
 <template>
-  <div class="interface-page">
-    <div class="top-bar"><div class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div><text class="page-title">界面</text><text class="clock">{{clock}}</text></div>
-    <div class="interface-list">
-      <div class="interface-row" onclick="selectPortrait"><image class="interface-icon" src="/common/interface-portrait.png"></image><text class="interface-text">竖屏</text><div if="{{orientation === 'portrait'}}" class="selected-dot"></div></div>
-      <div class="interface-row" onclick="selectLandscape"><image class="interface-icon" src="/common/interface-landscape.png"></image><text class="interface-text">横屏</text><div if="{{orientation === 'landscape'}}" class="selected-dot"></div></div>
+  <div class="{{isRing10 ? 'ring-interface-page' : 'interface-page'}}">
+    <div class="{{isRing10 ? 'ring-interface-top' : 'top-bar'}}"><text class="{{isRing10 ? 'ring-interface-title' : 'page-title'}}" onclick="back">界面</text><text class="{{isRing10 ? 'ring-interface-clock' : 'clock'}}">{{clock}}</text></div>
+    <div class="{{isRing10 ? 'ring-interface-list' : 'interface-list'}}">
+      <div class="{{isRing10 ? 'ring-interface-row' : 'interface-row'}}" onclick="selectPortrait"><image class="interface-icon" src="/common/interface-portrait.png"></image><text class="interface-text">竖屏</text><div if="{{orientation === 'portrait'}}" class="{{isRing10 ? 'ring-selected-dot' : 'selected-dot'}}"></div></div>
+      <div class="{{isRing10 ? 'ring-interface-row' : 'interface-row'}}" onclick="selectLandscape"><image class="interface-icon" src="/common/interface-landscape.png"></image><text class="interface-text">横屏</text><div if="{{orientation === 'landscape'}}" class="{{isRing10 ? 'ring-selected-dot' : 'selected-dot'}}"></div></div>
     </div>
   </div>
 </template>
 <script>
 import router from "@system.router"
+import { readIsRing10 } from "../../common/device.js"
 import { readInterfaceOrientation, writeInterfaceOrientation } from "../../common/interface.js"
 import { replacePage } from "../../common/navigation.js"
 export default {
-  private: { clock: "--:--", orientation: "portrait" },
-  onInit() { this.refreshClock(); readInterfaceOrientation(value => { this.orientation = value }); this.timer = setInterval(() => this.refreshClock(), 1000) },
+  private: { clock: "--:--", orientation: "portrait", isRing10: false },
+  onInit() { this.refreshClock(); readIsRing10(value => { this.isRing10 = value }); readInterfaceOrientation(value => { this.orientation = value }); this.timer = setInterval(() => this.refreshClock(), 1000) },
   onDestroy() { if (this.timer) clearInterval(this.timer) },
   refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
   openRoot(uri) { router.push({ uri, params: { ___PARAM_LAUNCH_FLAG___: "clearTask" } }) },
@@ -23,5 +24,9 @@ export default {
 }
 </script>
 <style>
-text,input{font-family:MiSans,sans-serif}.interface-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;overflow:hidden}.top-bar{position:absolute;left:0;top:0;width:336px;height:78px;background-color:#000}.back-button{position:absolute;left:8px;top:8px;width:68px;height:62px;align-items:center;justify-content:center}.back-icon{width:40px;height:40px}.page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}.clock{position:absolute;right:36px;top:15px;width:58px;color:#f2f2f2;font-size:17px;font-weight:500;line-height:22px;text-align:right}.interface-list{position:absolute;left:0;top:89px;width:336px;height:210px;flex-direction:column;align-items:center}.interface-row{position:relative;width:304px;height:88px;margin-bottom:14px;border-radius:34px;background-color:#303030;align-items:center}.interface-icon{width:60px;height:60px;margin-left:13px}.interface-text{margin-left:10px;color:#fff;font-size:29px;font-weight:400;line-height:38px;lines:1}.selected-dot{position:absolute;right:36px;width:20px;height:20px;border-radius:10px;background-color:#719ff0}
+text,input{font-family:MiSans,sans-serif}.interface-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;overflow:hidden}.top-bar{position:absolute;left:0;top:0;width:336px;height:78px;background-color:#000}.back-button{position:absolute;left:8px;top:8px;width:68px;height:62px;align-items:center;justify-content:center}.back-icon{width:40px;height:40px}.page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}.clock{position:absolute;right:26px;top:13px;width:58px;color:#f2f2f2;font-size:20px;font-weight:500;line-height:24px;text-align:right}.interface-list{position:absolute;left:0;top:89px;width:336px;height:210px;flex-direction:column;align-items:center}.interface-row{position:relative;width:316px;height:88px;margin-bottom:14px;border-radius:34px;background-color:#303030;align-items:center}.interface-icon{width:60px;height:60px;margin-left:13px}.interface-text{margin-left:10px;color:#fff;font-size:29px;font-weight:400;line-height:38px;lines:1}.selected-dot{position:absolute;right:36px;width:20px;height:20px;border-radius:10px;background-color:#719ff0}
+</style>
+<style>
+.clock{font-size:20px}.interface-row{width:316px}
+.ring-interface-page{width:212px;height:520px;position:relative;background-color:#000;border-radius:106px;overflow:hidden}.ring-interface-top{position:absolute;left:0;top:0;width:212px;height:80px;background-color:#000}.ring-interface-title{position:absolute;left:56px;top:32px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}.ring-interface-clock{position:absolute;right:52px;top:8px;width:108px;color:#f2f2f2;font-size:20px;line-height:24px;text-align:center}.ring-interface-list{position:absolute;left:0;top:89px;width:212px;height:210px;flex-direction:column;align-items:center}.ring-interface-row{position:relative;width:192px;height:88px;margin-bottom:14px;border-radius:34px;background-color:#303030;align-items:center}.ring-selected-dot{position:absolute;right:20px;width:20px;height:20px;border-radius:10px;background-color:#719ff0}
 </style>

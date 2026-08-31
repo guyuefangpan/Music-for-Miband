@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.Manifest
 import android.content.pm.PackageManager
 import android.provider.Settings
+import android.os.PowerManager
 import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -58,6 +59,9 @@ class MainActivity : ComponentActivity() {
         if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
+        val connectivityPermissions = if (android.os.Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT) else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        val missingConnectivity = connectivityPermissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (missingConnectivity.isNotEmpty()) requestPermissions(missingConnectivity.toTypedArray(), 1002)
         setContent {
             val media by SystemMediaMonitor.state.collectAsState()
             val wear by bridge.state.collectAsState()
@@ -78,11 +82,14 @@ class MainActivity : ComponentActivity() {
                             0 -> NowPlayingPage(media, permission)
                             1 -> LyricsPage(media)
                             2 -> LogPage(logs)
-                            else -> SettingsPage(wear, permission, media,
+                            3 -> SettingsPage(wear, permission, media,
                                 { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                                 bridge::start, bridge::stop,
                                 { bridge.forceSyncArtwork(SystemMediaMonitor.currentState()); Unit },
-                                { bridge.forceSyncLyrics(SystemMediaMonitor.currentState()); Unit })
+                                { bridge.forceSyncLyrics(SystemMediaMonitor.currentState()); Unit },
+                                { page = 4 })
+                            4 -> DiagnosticsPage(this@MainActivity, wear, permission, logs, bridge, { page = 3 })
+                            else -> NowPlayingPage(media, permission)
                         }
                     }
                 }
@@ -214,10 +221,11 @@ private fun LogPage(logs: List<CommunicationLogEntry>) {
 
 @Composable
 private fun SettingsPage(wear: WearState, permission: Boolean, media: SystemMediaState, openPermission: () -> Unit,
-    reconnect: () -> Unit, disconnect: () -> Unit, syncArtwork: () -> Unit, syncLyrics: () -> Unit) {
+    reconnect: () -> Unit, disconnect: () -> Unit, syncArtwork: () -> Unit, syncLyrics: () -> Unit, openDiagnostics: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("设置", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        OutlinedButton(openDiagnostics, Modifier.fillMaxWidth()) { Icon(Icons.Default.HealthAndSafety, null); Spacer(Modifier.width(8.dp)); Text("设备自检与兼容性诊断") }
         StatusCard("手环连接", wear.name, wear == WearState.CONNECTED, Icons.Default.Devices)
         StatusCard("媒体读取权限", if (permission) "已授权" else "未授权", permission, Icons.Default.Notifications)
         Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(8.dp)) {
@@ -255,6 +263,36 @@ private fun SettingsPage(wear: WearState, permission: Boolean, media: SystemMedi
         }
         Text("starry 1.0.0\n读取系统媒体并同步到小米手环。", color = Muted, fontSize = 12.sp,
             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun DiagnosticsPage(activity: MainActivity, wear: WearState, notificationAccess: Boolean, logs: List<CommunicationLogEntry>, bridge: WearBridge, back: () -> Unit) {
+    var refreshed by remember { mutableIntStateOf(0) }
+    val pm = activity.getSystemService(PowerManager::class.java)
+    val batteryOk = pm?.isIgnoringBatteryOptimizations(activity.packageName) == true
+    val notificationOk = notificationAccess
+    val sdkOk = runCatching { com.xiaomi.xms.wearable.Wearable.getNodeApi(activity) }.isSuccess
+    val bluetoothOk = if (android.os.Build.VERSION.SDK_INT >= 31) ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED && ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED else ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    val checks = listOf(
+        Triple("Android 系统", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL + " / API " + android.os.Build.VERSION.SDK_INT, true),
+        Triple("通知访问权限", if (notificationOk) "已授权，可读取系统媒体" else "未授权：无法读取歌曲、歌词和播放状态", notificationOk),
+        Triple("通知权限", if (android.os.Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) "已允许或系统不要求" else "未允许：可能无法显示服务状态", android.os.Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED),
+        Triple("蓝牙/附近设备权限", if (bluetoothOk) "已授权，可发现和连接手环" else if (android.os.Build.VERSION.SDK_INT >= 31) "未授权：Android 12 需要“附近设备”权限" else "未授权：旧系统需要定位权限才能扫描蓝牙", bluetoothOk),
+        Triple("电池优化", if (batteryOk) "已豁免，适合后台保持连接" else "未豁免：系统可能暂停后台重连", batteryOk),
+        Triple("Xiaomi Wearable SDK", if (sdkOk) "SDK 可加载" else "SDK 加载失败或设备不兼容", sdkOk),
+        Triple("手环互联节点", wear.name, wear == WearState.CONNECTED),
+        Triple("Quick App 会话", wear.name + "；点击下方重试拉起与握手", wear != WearState.ERROR),
+        Triple("最近通信日志", logs.size.toString() + " 条；请在日志页查看详细错误堆栈", logs.isNotEmpty())
+    )
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) { IconButton(back) { Icon(Icons.Default.ArrowBack, "返回", tint = Color.White) }; Text("设备自检", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+        Text("用于排查不同手机、系统版本和小米运动健康互联差异。状态来自当前设备实时检测。", color = Muted, fontSize = 13.sp)
+        checks.forEach { (title, detail, ok) -> StatusCard(title, detail, ok, if (ok) Icons.Default.CheckCircle else Icons.Default.Warning) }
+        Button({ refreshed++; bridge.start() }, Modifier.fillMaxWidth().height(52.dp)) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("重新检测并重试 Quick App") }
+        OutlinedButton({ activity.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }, Modifier.fillMaxWidth()) { Text("打开通知访问设置") }
+        OutlinedButton({ activity.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = android.net.Uri.parse("package:" + activity.packageName) }) }, Modifier.fillMaxWidth()) { Text("申请电池优化豁免") }
+        Text("检测编号：" + refreshed + " · 包名：" + activity.packageName, color = Muted, fontSize = 11.sp)
     }
 }
 

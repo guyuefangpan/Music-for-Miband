@@ -6,6 +6,8 @@ import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
 import com.xiaomi.xms.wearable.Wearable
+import com.xiaomi.xms.wearable.auth.AuthApi
+import com.xiaomi.xms.wearable.auth.Permission
 import com.xiaomi.xms.wearable.message.MessageApi
 import com.xiaomi.xms.wearable.message.OnMessageReceivedListener
 import com.xiaomi.xms.wearable.node.DataItem
@@ -64,8 +66,12 @@ class WearBridge private constructor(private val context: Context) {
     private val handler = Handler(Looper.getMainLooper())
     private var nodeApi: NodeApi? = null
     private var messageApi: MessageApi? = null
+    private var authApi: AuthApi? = null
     private var node: Node? = null
     private var listenerInstalled = false
+    private var listenerNodeId: String? = null
+    private var connectionSubscribed = false
+    private var connectionNodeId: String? = null
     private var handshaked = false
     private var deviceInfoReceived = false
     private var appLaunchedForSession = false
@@ -160,6 +166,12 @@ class WearBridge private constructor(private val context: Context) {
         if (nodeApi == null) {
             nodeApi = Wearable.getNodeApi(context)
             messageApi = Wearable.getMessageApi(context)
+            authApi = Wearable.getAuthApi(context)
+        }
+        if (node != null && listenerInstalled && listenerNodeId == node?.id) {
+            updateState(WearState.CONNECTING, "正在重新连接 Quick App")
+            launchQuickAppUntilReady()
+            return
         }
         updateState(WearState.CONNECTING, "正在查找手环")
         val attempt = ++discoveryAttempt
@@ -184,32 +196,127 @@ class WearBridge private constructor(private val context: Context) {
     }
 
     private fun attach(found: Node) {
+        if (node?.id == found.id && listenerInstalled && listenerNodeId == found.id) {
+            node = found
+            subscribeConnection(found)
+            launchQuickAppUntilReady()
+            return
+        }
+        val oldListenerNodeId = listenerNodeId
+        if (oldListenerNodeId != null && oldListenerNodeId != found.id && listenerInstalled) {
+            messageApi?.removeListener(oldListenerNodeId)
+                ?.addOnSuccessListener {
+                    listenerInstalled = false
+                    listenerNodeId = null
+                    connectionSubscribed = false
+                    connectionNodeId = null
+                    attach(found)
+                }
+                ?.addOnFailureListener {
+                    listenerInstalled = false
+                    listenerNodeId = null
+                    connectionSubscribed = false
+                    connectionNodeId = null
+                    attach(found)
+                }
+            return
+        }
         node = found
+        ensureDeviceManagerPermission(found)
+    }
+
+    private fun ensureDeviceManagerPermission(found: Node) {
+        val auth = authApi ?: Wearable.getAuthApi(context).also { authApi = it }
+        updateState(WearState.CONNECTING, "正在检查小米运动健康互联权限")
+        auth.checkPermission(found.id, Permission.DEVICE_MANAGER)
+            .addOnSuccessListener { granted ->
+                if (granted) {
+                    CommunicationLog.info("AUTH", "DEVICE_MANAGER 权限已授予")
+                    installMessageListener(found)
+                } else {
+                    CommunicationLog.warn("AUTH", "DEVICE_MANAGER 权限未授予，正在请求")
+                    requestDeviceManagerPermission(found)
+                }
+            }
+            .addOnFailureListener { error ->
+                CommunicationLog.warn("AUTH", "检查 DEVICE_MANAGER 权限失败，尝试请求: ${error.message.orEmpty()}")
+                requestDeviceManagerPermission(found)
+            }
+    }
+
+    private fun requestDeviceManagerPermission(found: Node) {
+        val auth = authApi ?: return
+        updateState(WearState.CONNECTING, "请在小米运动健康中允许互联权限")
+        auth.requestPermission(found.id, Permission.DEVICE_MANAGER)
+            .addOnSuccessListener { granted ->
+                val allowed = granted.any { it.name == Permission.DEVICE_MANAGER.name }
+                if (allowed) {
+                    CommunicationLog.info("AUTH", "DEVICE_MANAGER 权限授权成功")
+                    installMessageListener(found)
+                } else {
+                    CommunicationLog.error("AUTH", "DEVICE_MANAGER 权限未被用户授予")
+                    updateState(WearState.ERROR, "小米运动健康未授予互联权限")
+                }
+            }
+            .addOnFailureListener { error ->
+                CommunicationLog.error("AUTH", "请求 DEVICE_MANAGER 权限失败: ${error.message.orEmpty()}", error)
+                updateState(WearState.ERROR, "互联权限请求失败: ${error.message.orEmpty()}")
+            }
+    }
+
+    private fun installMessageListener(found: Node) {
         val install = {
             messageApi!!.addListener(found.id, listener).addOnSuccessListener {
                 listenerInstalled = true
+                listenerNodeId = found.id
                 CommunicationLog.info("CONN", "消息通道已就绪")
                 subscribeConnection(found)
                 launchQuickAppUntilReady()
-            }.addOnFailureListener {
+            }.addOnFailureListener { error ->
                 listenerInstalled = false
-                updateState(WearState.ERROR, "注册消息监听失败: ${it.message.orEmpty()}")
-                scheduleReconnect(RECONNECT_CYCLE_MS)
+                listenerNodeId = null
+                if (error.message.orEmpty().contains("registered", ignoreCase = true)) {
+                    CommunicationLog.warn("CONN", "旧消息监听仍存在，稍后重新清理并注册")
+                } else {
+                    CommunicationLog.error("CONN", "注册消息监听失败: ${error.message.orEmpty()}", error)
+                }
+                updateState(WearState.DISCONNECTED, "消息监听未就绪，正在重试")
+                scheduleReconnect(RECONNECT_DELAY_MS)
             }
         }
+        // This is the ordering used by the last known-good implementation. The
+        // SDK registration survives reconnect attempts, so always clear the
+        // node registration before installing this process' listener.
         messageApi!!.removeListener(found.id)
             .addOnSuccessListener { install() }
             .addOnFailureListener { install() }
     }
 
     private fun subscribeConnection(found: Node) {
+        if (connectionSubscribed && connectionNodeId == found.id) return
+        if (connectionNodeId != null && connectionNodeId != found.id) {
+            runCatching { nodeApi?.unsubscribe(connectionNodeId!!, DataItem.ITEM_CONNECTION) }
+            connectionSubscribed = false
+            connectionNodeId = null
+        }
         nodeApi?.subscribe(found.id, DataItem.ITEM_CONNECTION) { _, item, data ->
             if (item.type == DataItem.ITEM_CONNECTION.type) {
                 if (data.connectedStatus == DataSubscribeResult.RESULT_CONNECTION_CONNECTED) {
-                    if (!handshaked && !appLaunchedForSession) sendHandshake()
+                    if (!deviceInfoReceived) sendHandshake()
                 } else {
                     markQuickAppDisconnected("手环已断开")
                 }
+            }
+        }?.addOnSuccessListener {
+            connectionSubscribed = true
+            connectionNodeId = found.id
+        }?.addOnFailureListener { error ->
+            if (error.message.orEmpty().contains("registered", ignoreCase = true)) {
+                connectionSubscribed = true
+                connectionNodeId = found.id
+                CommunicationLog.warn("CONN", "连接状态监听已注册，继续使用")
+            } else {
+                CommunicationLog.warn("CONN", "连接状态监听失败: ${error.message.orEmpty()}")
             }
         }
     }
@@ -217,7 +324,9 @@ class WearBridge private constructor(private val context: Context) {
     private fun sendHandshake() {
         if (!listenerInstalled || deviceInfoReceived) return
         handshakeSent = true
-        sendJson(JSONObject().put("type", "__hs__").put("count", 0).put("version", 1).put("session", sessionId), false)
+        // A handshake must not wait behind a stale artwork/lyrics transfer from
+        // the previous session. Put it at the head of the transport queue.
+        sendJson(JSONObject().put("type", "__hs__").put("count", 0).put("version", 1).put("session", sessionId), false, true)
     }
 
     private fun launchQuickAppUntilReady() {
@@ -238,6 +347,9 @@ class WearBridge private constructor(private val context: Context) {
                 CommunicationLog.warn("CONN", "Quick App 拉起失败 ${launchAttempt}/$MAX_LAUNCH_ATTEMPTS: ${it.message.orEmpty()}")
                 sendHandshake()
             }
+        // launchWearApp may complete asynchronously or report success before the
+        // Quick App message endpoint is ready; send the handshake immediately too.
+        sendHandshake()
         handler.removeCallbacks(launchRetry)
         handler.postDelayed(launchRetry, LAUNCH_RETRY_MS)
     }
@@ -555,16 +667,14 @@ class WearBridge private constructor(private val context: Context) {
             else if (type == "media_progress") outgoing.removeAll { it.type == "media_progress" }
             else if (type == "lyrics_batch" && json.optInt("i") == 0) outgoing.removeAll { it.type == "lyrics_batch" }
             val item = OutboundMessage(type, packets)
-            if (type == "media_progress") {
-                if (urgent) {
-                    // Playback-state transitions and command confirmations must not
-                    // wait behind bulk lyrics/artwork transfers.
-                    outgoing.addFirst(item)
-                } else {
+            if (urgent) {
+                // Handshake and playback-state transitions must not wait behind
+                // bulk lyrics/artwork transfers.
+                outgoing.addFirst(item)
+            } else if (type == "media_progress") {
                     // Never starve full lyrics during ordinary position updates.
                     val lyricTail = outgoing.indexOfLast { it.type == "lyrics_batch" }
                     if (lyricTail >= 0) outgoing.add(lyricTail + 1, item) else outgoing.addFirst(item)
-                }
             } else outgoing.addLast(item)
         }
         drainOutgoing()
@@ -653,6 +763,10 @@ class WearBridge private constructor(private val context: Context) {
                 if (message.type == "album_art") {
                     retryArtworkOrAbort("Android 物理发送失败")
                     finishSend()
+                } else if (message.type == "__hs__") {
+                    // A launch can succeed before the Quick App message endpoint is
+                    // ready. Keep the registered listener and let launchRetry resend.
+                    finishSend()
                 } else {
                     markQuickAppDisconnected("Quick App 消息通道不可用")
                 }
@@ -718,6 +832,9 @@ class WearBridge private constructor(private val context: Context) {
         nodeApi = null
         messageApi = null
         listenerInstalled = false
+        listenerNodeId = null
+        connectionSubscribed = false
+        connectionNodeId = null
         handshaked = false
         deviceInfoReceived = false
         appLaunchedForSession = false
@@ -790,17 +907,22 @@ class WearBridge private constructor(private val context: Context) {
                 lastHeartbeatAck = System.currentTimeMillis()
             }
             "device_info" -> {
-                if (!handshaked || deviceInfoReceived || json.optString("session") != sessionId) return
+                if (!handshaked || json.optString("session") != sessionId) return
+                val firstReady = !deviceInfoReceived
                 deviceInfoReceived = true
                 handler.removeCallbacks(launchRetry)
                 handler.removeCallbacks(reconnect)
                 val model = json.optString("model").ifBlank { json.optString("product") }
-                CommunicationLog.info("CONN", "收到 Quick App 设备信息，通信就绪${if (model.isBlank()) "" else ": $model"}")
+                if (firstReady) {
+                    CommunicationLog.info("CONN", "收到 Quick App 设备信息，通信就绪${if (model.isBlank()) "" else ": $model"}")
+                }
+                // device_info is retried until this ACK arrives. Always ACK duplicate
+                // packets so a lost first response cannot strand either side.
                 sendJson(JSONObject().put("type", "device_info_ack").put("session", sessionId).put("version", 1), false)
                 handler.removeCallbacks(heartbeat)
                 handler.postDelayed(heartbeat, HEARTBEAT_MS)
                 updateState(WearState.CONNECTED, "Quick App 已连接")
-                onConnected?.invoke()
+                if (firstReady) onConnected?.invoke()
             }
             "app_ready" -> {
                 if (!deviceInfoReceived) sendHandshake()
@@ -937,7 +1059,7 @@ class WearBridge private constructor(private val context: Context) {
         blockedTransferMediaKey = ""
         realtimeSequence = 0L
         lastLatencyLogAt = 0L
-        node = null; listenerInstalled = false; handshaked = false; deviceInfoReceived = false; appLaunchedForSession = false; sessionId = ""; handshakeSent = false
+        node = null; listenerInstalled = false; listenerNodeId = null; connectionSubscribed = false; connectionNodeId = null; handshaked = false; deviceInfoReceived = false; appLaunchedForSession = false; sessionId = ""; handshakeSent = false
         updateState(WearState.DISCONNECTED, "已断开")
     }
 

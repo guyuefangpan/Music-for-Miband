@@ -1,28 +1,29 @@
 <template>
-  <div class="theme-page">
-    <div class="top-bar">
-      <div class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div>
-      <text class="page-title">主题</text>
-      <text class="clock">{{clock}}</text>
+  <div class="{{isRing10 ? 'ring-theme-page' : 'theme-page'}}">
+    <div class="{{isRing10 ? 'ring-theme-top' : 'top-bar'}}">
+      <text class="{{isRing10 ? 'ring-theme-title' : 'page-title'}}" onclick="back">主题</text>
+      <text class="{{isRing10 ? 'ring-theme-clock' : 'clock'}}">{{clock}}</text>
     </div>
-    <div class="theme-list">
-      <div class="theme-row" onclick="selectCover"><image class="theme-icon" src="/common/theme-cover.png"></image><text class="theme-text">封面</text><div if="{{theme === 'cover'}}" class="selected-dot"></div></div>
-      <div class="theme-row" onclick="selectDay"><image class="theme-icon" src="/common/theme-day.png"></image><text class="theme-text">白日</text><div if="{{theme === 'day'}}" class="selected-dot"></div></div>
-      <div class="theme-row" onclick="selectNight"><image class="theme-icon" src="/common/theme-night.png"></image><text class="theme-text">黑夜</text><div if="{{theme === 'night'}}" class="selected-dot"></div></div>
+    <div class="{{isRing10 ? 'ring-theme-list' : 'theme-list'}}">
+      <div class="{{isRing10 ? 'ring-theme-row' : 'theme-row'}}" onclick="selectCover"><image class="theme-icon" src="/common/theme-cover.png"></image><text class="theme-text">封面</text><div if="{{theme === 'cover'}}" class="{{isRing10 ? 'ring-theme-dot' : 'selected-dot'}}"></div></div>
+      <div class="{{isRing10 ? 'ring-theme-row' : 'theme-row'}}" onclick="selectDay"><image class="theme-icon" src="/common/theme-day.png"></image><text class="theme-text">白日</text><div if="{{theme === 'day'}}" class="{{isRing10 ? 'ring-theme-dot' : 'selected-dot'}}"></div></div>
+      <div class="{{isRing10 ? 'ring-theme-row' : 'theme-row'}}" onclick="selectNight"><image class="theme-icon" src="/common/theme-night.png"></image><text class="theme-text">黑夜</text><div if="{{theme === 'night'}}" class="{{isRing10 ? 'ring-theme-dot' : 'selected-dot'}}"></div></div>
     </div>
   </div>
 </template>
 
 <script>
 import storage from "@system.storage"
+import { readIsRing10 } from "../../common/device.js"
 import { replacePage } from "../../common/navigation.js"
 
 const THEME_KEY = "bandmedia_theme_v1"
 
 export default {
-  private: { clock: "--:--", theme: "night", coverTapCount: 0 },
+  private: { clock: "--:--", theme: "night", coverTapCount: 0, isRing10: false },
   onInit() {
     this.refreshClock()
+    readIsRing10(value => { this.isRing10 = value })
     this.loadTheme()
     this.timer = setInterval(() => this.refreshClock(), 1000)
   },
@@ -64,10 +65,14 @@ text,input{font-family:MiSans,sans-serif}
 .back-button{position:absolute;left:8px;top:8px;width:68px;height:62px;align-items:center;justify-content:center}
 .back-icon{width:40px;height:40px}
 .page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}
-.clock{position:absolute;right:36px;top:30px;width:58px;color:#f2f2f2;font-size:17px;font-weight:500;line-height:22px;text-align:right}
+.clock{position:absolute;right:36px;top:30px;width:58px;color:#f2f2f2;font-size:20px;font-weight:500;line-height:24px;text-align:right}
 .theme-list{position:absolute;left:0;top:78px;width:336px;height:402px;flex-direction:column;align-items:center}
-.theme-row{position:relative;width:304px;height:88px;margin-top:12px;border-radius:34px;background-color:#303030;align-items:center}
+.theme-row{position:relative;width:316px;height:88px;margin-top:12px;border-radius:34px;background-color:#303030;align-items:center}
 .theme-icon{width:60px;height:60px;margin-left:13px}
 .theme-text{margin-left:10px;color:#fff;font-size:29px;font-weight:400;line-height:38px;lines:1}
 .selected-dot{position:absolute;right:36px;width:20px;height:20px;border-radius:10px;background-color:#719ff0}
+</style>
+<style>
+.clock{font-size:20px}.theme-row{width:316px}
+.ring-theme-page{width:212px;height:520px;position:relative;background-color:#000;border-radius:106px;overflow:hidden}.ring-theme-top{position:absolute;left:0;top:0;width:212px;height:80px;background-color:#000}.ring-theme-title{position:absolute;left:56px;top:32px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}.ring-theme-clock{position:absolute;right:52px;top:8px;width:108px;color:#f2f2f2;font-size:20px;line-height:24px;text-align:center}.ring-theme-list{position:absolute;left:0;top:80px;width:212px;height:440px;flex-direction:column;align-items:center}.ring-theme-row{position:relative;width:192px;height:88px;margin-top:12px;border-radius:34px;background-color:#303030;align-items:center}.ring-theme-dot{position:absolute;right:20px;width:20px;height:20px;border-radius:10px;background-color:#719ff0}
 </style>

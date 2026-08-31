@@ -1,28 +1,25 @@
 <template>
-  <div class="about-page">
-    <div class="top-bar">
-      <div class="back-button" onclick="back">
-        <image class="back-icon" src="/common/back.png"></image>
-      </div>
-      <text class="page-title">关于</text>
-      <text class="clock">{{clock}}</text>
+  <div class="{{isRing10 ? 'ring-about-page' : 'about-page'}}">
+    <div class="{{isRing10 ? 'ring-about-top' : 'top-bar'}}">
+      <text class="{{isRing10 ? 'ring-about-title' : 'page-title'}}" onclick="back">关于</text>
+      <text class="{{isRing10 ? 'ring-about-clock' : 'clock'}}">{{clock}}</text>
     </div>
 
-    <scroll class="about-scroll" scroll-y="true">
-      <div class="about-content">
-        <div class="product-card" onclick="openDebug">
-          <text class="product-name">Starry</text>
-          <text class="product-description">歌词显示器</text>
-          <text class="product-version">ver1.0.0</text>
+    <scroll class="{{isRing10 ? 'ring-about-scroll' : 'about-scroll'}}" scroll-y="true">
+      <div class="{{isRing10 ? 'ring-about-content' : 'about-content'}}">
+        <div class="{{isRing10 ? 'ring-product-card' : 'product-card'}}" onclick="openDebug">
+          <text class="{{isRing10 ? 'ring-product-name' : 'product-name'}}">Starry</text>
+          <text class="{{isRing10 ? 'ring-product-description' : 'product-description'}}">歌词显示器</text>
+          <text if="{{!isRing10}}" class="product-version">ver1.0.0</text>
           <image class="brand-mark" src="/common/about-icon.png"></image>
         </div>
 
-        <div class="qq-card">
+        <div class="{{isRing10 ? 'ring-qq-card' : 'qq-card'}}">
           <text class="qq-title">QQ交流群</text>
           <text class="qq-number">194377205</text>
         </div>
 
-        <div class="credits-card">
+        <div class="{{isRing10 ? 'ring-credits-card' : 'credits-card'}}">
           <text class="credits-title">开发人员</text>
           <text class="credits-name">@洪淑森</text>
           <text class="credits-name">@IKUN_CXKPRO</text>
@@ -37,14 +34,16 @@
 
 <script>
 import { replacePage } from "../../common/navigation.js"
+import { readIsRing10 } from "../../common/device.js"
 
 export default {
   private: {
     clock: "--:--",
-    debugTapCount: 0
+    debugTapCount: 0, isRing10: false
   },
   onInit() {
     this.refreshClock()
+    readIsRing10(value => { this.isRing10 = value })
     this.timer = setInterval(() => this.refreshClock(), 1000)
   },
   onDestroy() {
@@ -253,4 +252,7 @@ input {
   width: 336px;
   height: 19px;
 }
+</style>
+<style>
+.clock{font-size:20px}.ring-about-page{width:212px;height:520px;position:relative;background-color:#000;border-radius:106px;overflow:hidden}.ring-about-top{position:absolute;left:0;top:0;width:212px;height:80px;background-color:#000}.ring-about-title{position:absolute;left:56px;top:32px;width:100px;color:#fff;font-size:30px;line-height:38px;text-align:center}.ring-about-clock{position:absolute;right:52px;top:8px;width:108px;color:#f2f2f2;font-size:20px;line-height:24px;text-align:center}.ring-about-scroll{position:absolute;left:0;top:80px;width:212px;height:440px}.ring-about-content{width:212px;height:590px;flex-direction:column;align-items:center}.ring-product-card,.ring-qq-card,.ring-credits-card{position:relative;width:192px;background-color:#303030;border-radius:34px}.ring-product-card{height:200px;overflow:hidden}.ring-qq-card{height:99px;margin-top:16px;padding-left:12px;padding-top:8px;flex-direction:column}.ring-credits-card{height:221px;margin-top:14px;padding-left:12px;padding-top:11px;flex-direction:column}.ring-product-name{position:absolute;left:12px;top:18px;width:170px;color:#fff;font-size:31px;line-height:39px;lines:1}.ring-product-description{position:absolute;left:12px;top:59px;width:170px;color:#fff;font-size:30px;line-height:39px;lines:1}.ring-qq-card,.ring-credits-card{padding-right:10px}.ring-about-content-bottom-space{width:212px}
 </style>

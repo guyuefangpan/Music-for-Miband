@@ -30,6 +30,7 @@ export default {
     this.lastConnectionMark = 0
     this.handshakeSent = false
     this.deviceInfoSent = false
+    this.deviceInfoPayload = null
     this.destroyed = false
     this.storageBusy = false
     this.pendingMediaState = null
@@ -43,12 +44,13 @@ export default {
     this.publishedArtwork = { id: "", uri: "", bytes: 0, sum: 0, format: "" }
     this.lyricsGroups = {}
     this.trackCleanupTimers = []
-    this.startupCleanupDone = false
-    this.cleanupStartupCaches(() => {
-      if (this.destroyed) return
-      this.startupCleanupDone = true
-      this.startCommunication()
-    })
+    // Register interconnect immediately. Some older Vela devices do not invoke
+    // every file.delete completion callback for a missing file; gating the
+    // transport behind cache cleanup leaves Android endlessly launching an app
+    // that never installs onmessage. Media caches are replaced transactionally
+    // by the normal sync protocol and do not need to block startup.
+    this.startupCleanupDone = true
+    this.startCommunication()
     brightness.setKeepScreenOn({ keepScreenOn: true, success: () => {}, fail: () => {}, complete: () => {} })
     console.log("app created")
   },
@@ -87,9 +89,7 @@ export default {
     this.conn.onopen = () => {
       if (this.destroyed) return
       this.connected = true
-      this.send({ type: "app_ready", phase: "open", sequence: 1, timestamp: Date.now() })
-      this.send({ type: "app_ready", phase: "open", sequence: 2, timestamp: Date.now() })
-      this.send({ type: "app_ready", phase: "open", sequence: 3, timestamp: Date.now() })
+      this.announceReady("open")
     }
     this.conn.onclose = () => {
       if (this.destroyed) return
@@ -98,6 +98,7 @@ export default {
       this.sessionId = ""
       this.handshakeSent = false
       this.deviceInfoSent = false
+      this.deviceInfoPayload = null
       this.markConnected(false)
     }
     this.conn.onerror = () => {
@@ -107,8 +108,15 @@ export default {
       this.sessionId = ""
       this.handshakeSent = false
       this.deviceInfoSent = false
+      this.deviceInfoPayload = null
       this.markConnected(false)
     }
+    this.connectionRetryTimer = setInterval(() => {
+      if (this.destroyed || this.ready) return
+      this.checkConnection()
+      if (this.connected) this.announceReady("retry")
+    }, 1000)
+    this.checkConnection()
     this.watchHeartbeatTimer = setInterval(() => {
       if (this.destroyed || !this.connected || !this.ready) return
       if (this.lastWatchHeartbeatAckAt > 0 && Date.now() - this.lastWatchHeartbeatAckAt > 15000) {
@@ -117,6 +125,28 @@ export default {
       }
       this.send({ type: HEARTBEAT, origin: "watch", timestamp: Date.now() })
     }, 5000)
+  },
+  checkConnection() {
+    if (this.destroyed || !this.conn || typeof this.conn.diagnosis !== "function") return
+    try {
+      this.conn.diagnosis({
+        success: data => {
+          if (this.destroyed) return
+          const status = String(data && data.status || "").toUpperCase()
+          if (status === "CONNECTED" || status === "OPEN") {
+            this.connected = true
+            this.announceReady("diagnosis")
+          }
+        },
+        fail: () => {},
+        complete: () => {}
+      })
+    } catch (error) {}
+  },
+  announceReady(phase) {
+    if (this.destroyed || !this.connected) return
+    this.send({ type: "app_ready", phase: phase, timestamp: Date.now() })
+    if (this.sessionId && !this.ready) this.sendDeviceInfo()
   },
   handleAndroidMessage(data) {
     let message = data
@@ -153,13 +183,14 @@ export default {
         this.sessionId = session
         this.ready = false
         this.deviceInfoSent = false
+        this.deviceInfoPayload = null
       }
       const count = Number(message.count)
       if (count >= 0 && count < 2) this.sendHandshake(count + 1)
       if (this.sessionId) {
         this.send({ type: "app_ready", phase: "handshake", sequence: 1, session: this.sessionId, timestamp: Date.now() })
         this.send({ type: "app_ready", phase: "handshake", sequence: 2, session: this.sessionId, timestamp: Date.now() })
-        this.sendDeviceInfoOnce()
+        this.sendDeviceInfo()
       }
     } else if (message.type === "device_info_ack") {
       if (!this.sessionId || String(message.session || "") !== this.sessionId) return
@@ -268,7 +299,7 @@ export default {
     this.realtimeVersion += 1
   },
   getRealtimeMediaState() {
-    return { state: this.lastMediaState, connected: this.ready && this.connected, version: this.realtimeVersion }
+    return { state: this.lastMediaState, connected: this.connected, version: this.realtimeVersion }
   },
   handleArtworkProbe(message) {
     const requestId = String(message.requestId || "")
@@ -494,16 +525,28 @@ export default {
     this.send({ type: HANDSHAKE, count: count, version: 1, session: this.sessionId })
   },
   sendDeviceInfoOnce() {
-    if (this.deviceInfoSent || this.destroyed) return
+    this.sendDeviceInfo()
+  },
+  sendDeviceInfo() {
+    if (this.destroyed || !this.sessionId) return
+    if (this.deviceInfoPayload) {
+      this.send(this.deviceInfoPayload)
+      return
+    }
+    if (this.deviceInfoSent) return
     this.deviceInfoSent = true
     device.getInfo({
       success: info => {
         if (this.destroyed) return
         const data = info || {}
-        this.send({ type: "device_info", session: this.sessionId, protocolVersion: 2, artworkFormat: "png", product: data.product || data.brand || data.manufacturer || "", model: data.model || "", screenWidth: data.screenWidth || data.width || 0, screenHeight: data.screenHeight || data.height || 0, screenShape: data.screenShape || "" })
+        this.deviceInfoPayload = { type: "device_info", session: this.sessionId, protocolVersion: 2, artworkFormat: "png", product: data.product || data.brand || data.manufacturer || "", model: data.model || "", screenWidth: data.screenWidth || data.width || 0, screenHeight: data.screenHeight || data.height || 0, screenShape: data.screenShape || "" }
+        this.send(this.deviceInfoPayload)
       },
       fail: () => {
-        if (!this.destroyed) this.send({ type: "device_info", session: this.sessionId, protocolVersion: 2, artworkFormat: "png", product: "", model: "", screenWidth: 0, screenHeight: 0, screenShape: "" })
+        if (!this.destroyed) {
+          this.deviceInfoPayload = { type: "device_info", session: this.sessionId, protocolVersion: 2, artworkFormat: "png", product: "", model: "", screenWidth: 0, screenHeight: 0, screenShape: "" }
+          this.send(this.deviceInfoPayload)
+        }
       },
       complete: () => {}
     })
@@ -597,6 +640,7 @@ export default {
     this.sessionId = ""
     this.handshakeSent = false
     this.deviceInfoSent = false
+    this.deviceInfoPayload = null
     this.chunks = {}
     this.albumArtChunks = {}
     this.lyricsGroups = {}
@@ -609,6 +653,7 @@ export default {
     }
     this.conn = null
     if (this.watchHeartbeatTimer) clearInterval(this.watchHeartbeatTimer)
+    if (this.connectionRetryTimer) clearInterval(this.connectionRetryTimer)
     for (let i = 0; i < this.trackCleanupTimers.length; i++) clearTimeout(this.trackCleanupTimers[i])
     this.trackCleanupTimers = []
     brightness.setKeepScreenOn({ keepScreenOn: false, success: () => {}, fail: () => {}, complete: () => {} })

@@ -1,6 +1,6 @@
 <template>
   <div class="debug-page">
-    <div class="top-bar"><div class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div><text class="page-title">Debug</text><text class="clock">{{clock}}</text></div>
+    <div class="top-bar"><text class="page-title" onclick="back">Debug</text><text class="clock">{{clock}}</text></div>
     <div class="debug-setting" onclick="toggleDebug"><text class="debug-label">假如我已经连接上了手机</text><div class="{{debugMode ? 'debug-switch-on' : 'debug-switch-off'}}"><div class="{{debugMode ? 'debug-knob-on' : 'debug-knob-off'}}"></div></div></div>
   </div>
 </template>
@@ -17,5 +17,5 @@ export default {
 }
 </script>
 <style>
-text,input{font-family:MiSans,sans-serif}.debug-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;overflow:hidden}.top-bar{position:absolute;left:0;top:0;width:336px;height:78px}.back-button{position:absolute;left:8px;top:8px;width:68px;height:62px;align-items:center;justify-content:center}.back-icon{width:40px;height:40px}.page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;text-align:center;line-height:38px}.clock{position:absolute;right:36px;top:30px;width:58px;color:#f2f2f2;font-size:17px;text-align:right;line-height:22px}.debug-setting{position:absolute;left:16px;top:98px;width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}.debug-label{margin-left:20px;width:218px;color:#fff;font-size:19px;line-height:28px}.debug-switch-off,.debug-switch-on{position:absolute;right:16px;width:54px;height:30px;border-radius:15px}.debug-switch-off{background-color:#555}.debug-switch-on{background-color:#719ff0}.debug-knob-off,.debug-knob-on{position:absolute;top:3px;width:24px;height:24px;border-radius:12px;background-color:#fff}.debug-knob-off{left:3px}.debug-knob-on{left:27px}
+text,input{font-family:MiSans,sans-serif}.debug-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;overflow:hidden}.top-bar{position:absolute;left:0;top:0;width:336px;height:78px}.page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;text-align:center;line-height:38px}.clock{position:absolute;right:36px;top:30px;width:58px;color:#f2f2f2;font-size:20px;text-align:right;line-height:24px}.debug-setting{position:absolute;left:16px;top:98px;width:316px;height:88px;border-radius:34px;background-color:#303030;align-items:center}.debug-label{margin-left:20px;width:218px;color:#fff;font-size:19px;line-height:28px}.debug-switch-off,.debug-switch-on{position:absolute;right:16px;width:54px;height:30px;border-radius:15px}.debug-switch-off{background-color:#555}.debug-switch-on{background-color:#719ff0}.debug-knob-off,.debug-knob-on{position:absolute;top:3px;width:24px;height:24px;border-radius:12px;background-color:#fff}.debug-knob-off{left:3px}.debug-knob-on{left:27px}
 </style>

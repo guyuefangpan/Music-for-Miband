@@ -1,29 +1,29 @@
 <template>
-  <div class="settings-page">
-    <div class="top-bar">
-      <div class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div>
-      <text class="page-title">设置</text>
-      <text class="clock">{{clock}}</text>
+  <div class="{{isRing10 ? 'ring-settings-page' : 'settings-page'}}">
+    <div class="{{isRing10 ? 'ring-settings-top' : 'top-bar'}}">
+      <text class="{{isRing10 ? 'ring-settings-title' : 'page-title'}}" onclick="back">设置</text>
+      <text class="{{isRing10 ? 'ring-settings-clock' : 'clock'}}">{{clock}}</text>
     </div>
-    <scroll class="settings-scroll" scroll-y="true">
-      <div class="settings-content">
-        <div class="top-space"></div>
-        <div class="setting-slot"><div class="exit-card" onclick="exitApp"><div class="exit-icon"><div class="exit-ring"></div><div class="exit-line"></div></div><text class="row-text">退出应用</text></div></div>
-        <div class="setting-slot"><div class="interface-card" onclick="routeInterface"><image class="setting-icon" src="/common/settings-interface.png"></image><text class="row-text">界面</text></div></div>
-        <div class="setting-slot"><div class="theme-card" onclick="routeTheme"><image class="setting-icon" src="/common/settings-theme.png"></image><text class="row-text">主题</text></div></div>
-        <div class="setting-slot"><div class="lyrics-card" onclick="routeLyrics"><image class="setting-icon" src="/common/settings-lyrics.png"></image><text class="row-text">歌词</text></div></div>
-        <div class="setting-slot"><div class="about-card" onclick="routeAbout"><image class="setting-icon" src="/common/settings-about.png"></image><text class="row-text">关于</text></div></div>
-        <div class="bottom-space"></div>
+    <scroll class="{{isRing10 ? 'ring-settings-scroll' : 'settings-scroll'}}" scroll-y="true">
+      <div class="{{isRing10 ? 'ring-settings-content' : 'settings-content'}}">
+        <div class="{{isRing10 ? 'ring-top-space' : 'top-space'}}"></div>
+        <div class="{{isRing10 ? 'ring-setting-slot' : 'setting-slot'}}"><div class="{{isRing10 ? 'ring-setting-card ring-exit-card' : 'exit-card'}}" onclick="exitApp"><div if="{{!isRing10}}" class="exit-icon"><div class="exit-ring"></div><div class="exit-line"></div></div><text class="row-text">退出应用</text></div></div>
+        <div class="{{isRing10 ? 'ring-setting-slot' : 'setting-slot'}}"><div class="{{isRing10 ? 'ring-setting-card' : 'interface-card'}}" onclick="routeInterface"><image class="setting-icon" src="/common/settings-interface.png"></image><text class="row-text">界面</text></div></div>
+        <div class="{{isRing10 ? 'ring-setting-slot' : 'setting-slot'}}"><div class="{{isRing10 ? 'ring-setting-card' : 'theme-card'}}" onclick="routeTheme"><image class="setting-icon" src="/common/settings-theme.png"></image><text class="row-text">主题</text></div></div>
+        <div class="{{isRing10 ? 'ring-setting-slot' : 'setting-slot'}}"><div class="{{isRing10 ? 'ring-setting-card' : 'lyrics-card'}}" onclick="routeLyrics"><image class="setting-icon" src="/common/settings-lyrics.png"></image><text class="row-text">歌词</text></div></div>
+        <div class="{{isRing10 ? 'ring-setting-slot' : 'setting-slot'}}"><div class="{{isRing10 ? 'ring-setting-card' : 'about-card'}}" onclick="routeAbout"><image class="setting-icon" src="/common/settings-about.png"></image><text class="row-text">关于</text></div></div>
+        <div class="{{isRing10 ? 'ring-bottom-space' : 'bottom-space'}}"></div>
       </div>
     </scroll>
   </div>
 </template>
 <script>
 import app from "@system.app"
+import { readIsRing10 } from "../../common/device.js"
 import { replacePage, openPlayerRoot } from "../../common/navigation.js"
 export default {
-  private: { clock: "--:--" },
-  onInit() { this.refreshClock(); this.timer = setInterval(() => this.refreshClock(), 1000) },
+  private: { clock: "--:--", isRing10: false },
+  onInit() { this.refreshClock(); readIsRing10(value => { this.isRing10 = value }); this.timer = setInterval(() => this.refreshClock(), 1000) },
   onDestroy() { if (this.timer) clearInterval(this.timer) },
   refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
   routeInterface() { replacePage("/pages/interface") },
@@ -38,10 +38,10 @@ export default {
 text,input{font-family:MiSans,sans-serif}
 .settings-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;overflow:hidden}
 .top-bar{position:absolute;left:0;top:0;width:336px;height:78px;background-color:#000}
-.back-button{position:absolute;left:8px;top:8px;width:68px;height:62px;align-items:center;justify-content:center}
-.back-icon{width:40px;height:40px}
+
+
 .page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}
-.clock{position:absolute;right:36px;top:30px;width:58px;color:#f2f2f2;font-size:17px;font-weight:500;line-height:22px;text-align:right}
+.clock{position:absolute;right:36px;top:30px;width:58px;color:#f2f2f2;font-size:20px;font-weight:500;line-height:24px;text-align:right}
 .settings-scroll{position:absolute;left:0;top:78px;width:336px;height:402px}
 .settings-content{width:336px;height:540px;flex-direction:column;align-items:center}
 .exit-icon{position:relative;width:60px;height:60px;margin-left:13px;border-radius:30px;background-color:#e45b5b;align-items:center;justify-content:center}
@@ -49,12 +49,16 @@ text,input{font-family:MiSans,sans-serif}
 .exit-line{position:absolute;left:27px;top:9px;width:6px;height:25px;border-radius:3px;background-color:#e45b5b;border-width:3px;border-style:solid;border-color:#fff}
 .top-space{width:336px;height:12px;flex-shrink:0}
 .setting-slot{width:336px;height:100px;align-items:flex-start;justify-content:center;flex-shrink:0}
-.interface-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
-.theme-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
-.lyrics-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
-.about-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
-.exit-card{width:304px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
+.interface-card{width:316px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
+.theme-card{width:316px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
+.lyrics-card{width:316px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
+.about-card{width:316px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
+.exit-card{width:316px;height:88px;border-radius:34px;background-color:#303030;align-items:center}
 .setting-icon{width:60px;height:60px;margin-left:13px}
 .row-text{margin-left:10px;color:#fff;font-size:29px;font-weight:400;line-height:38px;lines:1}
 .bottom-space{width:336px;height:16px}
+</style>
+<style>
+.clock{font-size:20px}.interface-card,.theme-card,.lyrics-card,.about-card,.exit-card{width:316px}.settings-content{height:540px}
+.ring-settings-page{width:212px;height:520px;position:relative;background-color:#000;border-radius:106px;overflow:hidden}.ring-settings-top{position:absolute;left:0;top:0;width:212px;height:80px;background-color:#000}.ring-settings-title{position:absolute;left:56px;top:32px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}.ring-settings-clock{position:absolute;right:52px;top:8px;width:108px;color:#f2f2f2;font-size:20px;line-height:24px;text-align:center}.ring-settings-scroll{position:absolute;left:0;top:80px;width:212px;height:440px}.ring-settings-content{width:212px;height:535px;flex-direction:column;align-items:center}.ring-top-space{width:212px;height:9px;flex-shrink:0}.ring-setting-slot{width:212px;height:102px;align-items:flex-start;justify-content:center;flex-shrink:0}.ring-setting-card{width:192px;height:88px;border-radius:34px;background-color:#303030;align-items:center}.ring-bottom-space{width:212px;height:16px}
 </style>

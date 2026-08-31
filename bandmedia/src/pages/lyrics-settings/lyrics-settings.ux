@@ -1,28 +1,29 @@
 <template>
-  <div class="lyrics-settings-page">
-    <div class="top-bar"><div class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div><text class="page-title">歌词</text><text class="clock">{{clock}}</text></div>
-    <div class="settings-card">
-      <div class="font-icon"><text class="font-symbol">Tᵀ</text></div>
-      <text class="setting-title">字号</text>
-      <div class="preview">
-        <text class="preview-muted preview-one" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">我要把</text>
-        <text class="preview-muted preview-two" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">少年幻想变成蓝天的纽扣</text>
-        <text class="preview-active" style="font-size:{{fontSize}}px;line-height:{{previewLineHeight}}px">陪着晚上摇曳笔尖的右手</text>
-        <text class="preview-muted preview-three" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">走街串巷舞文弄墨也不够</text>
-        <text class="preview-muted preview-four" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">直到能把答案说出口</text>
+  <div class="{{isRing10 ? 'ring-lyrics-settings-page' : 'lyrics-settings-page'}}">
+    <div class="{{isRing10 ? 'ring-lyrics-top' : 'top-bar'}}"><text class="{{isRing10 ? 'ring-lyrics-title' : 'page-title'}}" onclick="back">歌词</text><text class="{{isRing10 ? 'ring-lyrics-clock' : 'clock'}}">{{clock}}</text></div>
+    <div class="{{isRing10 ? 'ring-lyrics-card' : 'settings-card'}}">
+      <div class="{{isRing10 ? ring-font-icon : font-icon}}"><text class="font-symbol">Tᵀ</text></div>
+      <text class="{{isRing10 ? 'ring-font-title' : 'setting-title'}}">字号</text>
+      <div class="{{isRing10 ? 'ring-font-preview' : 'preview'}}">
+        <text class="{{isRing10 ? 'ring-preview-muted-one' : 'preview-muted preview-one'}}" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">我要把</text>
+        <text class="{{isRing10 ? 'ring-preview-muted-two' : 'preview-muted preview-two'}}" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">少年幻想变成蓝天的纽扣</text>
+        <text class="{{isRing10 ? 'ring-preview-active' : 'preview-active'}}" style="font-size:{{fontSize}}px;line-height:{{previewLineHeight}}px">陪着晚上摇曳笔尖的右手</text>
+        <text class="{{isRing10 ? 'ring-preview-muted-three' : 'preview-muted preview-three'}}" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">走街串巷舞文弄墨也不够</text>
+        <text class="{{isRing10 ? 'ring-preview-muted-four' : 'preview-muted preview-four'}}" style="font-size:{{mutedFontSize}}px;line-height:{{previewLineHeight}}px">直到能把答案说出口</text>
       </div>
-      <div class="adjust-button plus" onclick="increase"><div class="horizontal"></div><div class="vertical"></div></div>
-      <text class="font-value">{{fontSize}}px</text>
-      <div class="adjust-button minus" onclick="decrease"><div class="horizontal"></div></div>
+      <div class="{{isRing10 ? 'ring-adjust-plus' : 'adjust-button plus'}}" onclick="increase"><div class="horizontal"></div><div class="vertical"></div></div>
+      <text class="{{isRing10 ? 'ring-font-value' : 'font-value'}}">{{fontSize}}px</text>
+      <div class="{{isRing10 ? 'ring-adjust-minus' : 'adjust-button minus'}}" onclick="decrease"><div class="horizontal"></div></div>
     </div>
   </div>
 </template>
 <script>
 import { readLyricsFontSize, writeLyricsFontSize, MIN_LYRICS_FONT_SIZE, MAX_LYRICS_FONT_SIZE } from "../../common/lyrics.js"
 import { replacePage } from "../../common/navigation.js"
+import { readIsRing10 } from "../../common/device.js"
 export default {
-  private: { clock: "--:--", fontSize: 20, mutedFontSize: 17, previewLineHeight: 28 },
-  onInit() { this.refreshClock(); this.load(); this.timer = setInterval(() => this.refreshClock(), 1000) },
+  private: { clock: "--:--", fontSize: 20, mutedFontSize: 17, previewLineHeight: 28, isRing10: false },
+  onInit() { this.refreshClock(); readIsRing10(value => { this.isRing10 = value }); this.load(); this.timer = setInterval(() => this.refreshClock(), 1000) },
   onShow() { this.load() },
   onDestroy() { if (this.timer) clearInterval(this.timer) },
   refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
@@ -35,5 +36,9 @@ export default {
 }
 </script>
 <style>
-text,input{font-family:MiSans,sans-serif}.lyrics-settings-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;overflow:hidden}.top-bar{position:absolute;left:0;top:0;width:336px;height:78px;background-color:#000}.back-button{position:absolute;left:8px;top:8px;width:68px;height:62px;align-items:center;justify-content:center}.back-icon{width:40px;height:40px}.page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}.clock{position:absolute;right:26px;top:13px;width:58px;color:#f2f2f2;font-size:17px;font-weight:500;line-height:22px;text-align:right}.settings-card{position:absolute;left:16px;top:89px;width:304px;height:375px;border-radius:34px;background-color:#303030;overflow:hidden}.font-icon{position:absolute;left:15px;top:14px;width:60px;height:60px;border-radius:30px;background-color:#719ff0;align-items:center;justify-content:center}.font-symbol{width:60px;color:#fff;font-size:35px;font-weight:500;text-align:center;line-height:44px}.setting-title{position:absolute;left:88px;top:24px;width:170px;color:#fff;font-size:29px;line-height:38px}.preview{position:absolute;left:17px;top:81px;width:270px;height:226px;overflow:hidden}.preview-muted,.preview-active{position:absolute;left:0;width:270px;text-align:center;lines:1;text-overflow:ellipsis;letter-spacing:0}.preview-muted{color:#777}.preview-active{top:102px;color:#fff}.preview-one{top:0}.preview-two{top:48px}.preview-three{top:150px}.preview-four{top:198px}.adjust-button{position:absolute;bottom:7px;width:72px;height:62px;align-items:center;justify-content:center}.plus{left:10px}.minus{right:10px}.horizontal{position:absolute;width:31px;height:5px;border-radius:3px;background-color:#fff}.vertical{position:absolute;width:5px;height:31px;border-radius:3px;background-color:#fff}.font-value{position:absolute;left:102px;bottom:19px;width:100px;color:#fff;font-size:30px;line-height:40px;text-align:center}
+text,input{font-family:MiSans,sans-serif}.lyrics-settings-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;overflow:hidden}.top-bar{position:absolute;left:0;top:0;width:336px;height:78px;background-color:#000}.back-button{position:absolute;left:8px;top:8px;width:68px;height:62px;align-items:center;justify-content:center}.back-icon{width:40px;height:40px}.page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}.clock{position:absolute;right:26px;top:13px;width:58px;color:#f2f2f2;font-size:20px;font-weight:500;line-height:24px;text-align:right}.settings-card{position:absolute;left:10px;top:89px;width:316px;height:375px;border-radius:34px;background-color:#303030;overflow:hidden}.font-icon{position:absolute;left:15px;top:14px;width:60px;height:60px;border-radius:30px;background-color:#719ff0;align-items:center;justify-content:center}.font-symbol{width:60px;color:#fff;font-size:35px;font-weight:500;text-align:center;line-height:44px}.setting-title{position:absolute;left:88px;top:24px;width:170px;color:#fff;font-size:29px;line-height:38px}.preview{position:absolute;left:17px;top:81px;width:270px;height:226px;overflow:hidden}.preview-muted,.preview-active{position:absolute;left:0;width:270px;text-align:center;lines:1;text-overflow:ellipsis;letter-spacing:0}.preview-muted{color:#777}.preview-active{top:102px;color:#fff}.preview-one{top:0}.preview-two{top:48px}.preview-three{top:150px}.preview-four{top:198px}.adjust-button{position:absolute;bottom:7px;width:72px;height:62px;align-items:center;justify-content:center}.plus{left:10px}.minus{right:10px}.horizontal{position:absolute;width:31px;height:5px;border-radius:3px;background-color:#fff}.vertical{position:absolute;width:5px;height:31px;border-radius:3px;background-color:#fff}.font-value{position:absolute;left:102px;bottom:19px;width:100px;color:#fff;font-size:30px;line-height:40px;text-align:center}
+</style>
+<style>
+.clock{font-size:20px}.settings-card{left:10px;width:316px}.preview{width:282px}.preview-muted,.preview-active{width:282px}.font-value{left:108px}
+.ring-lyrics-settings-page{width:212px;height:520px;position:relative;background-color:#000;border-radius:106px;overflow:hidden}.ring-lyrics-top{position:absolute;left:0;top:0;width:212px;height:80px;background-color:#000}.ring-lyrics-title{position:absolute;left:56px;top:32px;width:100px;color:#fff;font-size:30px;line-height:38px;text-align:center}.ring-lyrics-clock{position:absolute;right:52px;top:8px;width:108px;color:#f2f2f2;font-size:20px;line-height:24px;text-align:center}.ring-lyrics-card{position:absolute;left:10px;top:89px;width:192px;height:375px;border-radius:34px;background-color:#303030;overflow:hidden}.ring-font-icon{left:15px}.ring-font-title{position:absolute;left:86px;top:24px;width:95px;color:#fff;font-size:29px;line-height:38px}.ring-font-preview{position:absolute;left:10px;top:81px;width:172px;height:226px;overflow:hidden}.ring-preview-muted-one,.ring-preview-muted-two,.ring-preview-active,.ring-preview-muted-three,.ring-preview-muted-four{position:absolute;left:0;width:172px;text-align:center;lines:1;text-overflow:ellipsis}.ring-preview-muted-one{top:0;color:#777}.ring-preview-muted-two{top:48px;color:#777}.ring-preview-active{top:102px;color:#fff}.ring-preview-muted-three{top:150px;color:#777}.ring-preview-muted-four{top:198px;color:#777}.ring-adjust-plus,.ring-adjust-minus{position:absolute;bottom:7px;width:72px;height:62px;align-items:center;justify-content:center}.ring-adjust-plus{left:0}.ring-adjust-minus{right:0}.ring-font-value{position:absolute;left:46px;bottom:19px;width:100px;color:#fff;font-size:30px;line-height:40px;text-align:center}
 </style>

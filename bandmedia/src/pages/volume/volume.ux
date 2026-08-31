@@ -18,7 +18,7 @@
   </div>
 </template>
 <script>
-import device from "@system.device"
+import { readIsRing10 } from "../../common/device.js"
 import {readMediaState, sendControlCommand} from "../../common/media-sync.js"
 import { openPlayerRoot } from "../../common/navigation.js"
 export default {
@@ -29,7 +29,7 @@ export default {
     this.timer = setInterval(() => this.load(), 1000)
   },
   detectDevice() {
-    device.getInfo({success: info => { const width = info.screenWidth || info.width || info.windowWidth; const height = info.screenHeight || info.height || info.windowHeight; this.isRing10 = Number(width) === 212 && Number(height) === 520 }, fail: () => {}, complete: () => {}})
+    readIsRing10(value => { this.isRing10 = value })
   },
   onDestroy() {
     if (this.timer) clearInterval(this.timer)
