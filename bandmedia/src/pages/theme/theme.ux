@@ -1,6 +1,7 @@
 <template>
-  <div class="{{isRing10 ? 'ring-theme-page' : 'theme-page'}}">
+  <div class="{{isRing10 ? 'ring-theme-page' : 'theme-page'}}" onswipe="swipeBack">
     <div class="{{isRing10 ? 'ring-theme-top' : 'top-bar'}}">
+      <div if="{{!isRing10}}" class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div>
       <text class="{{isRing10 ? 'ring-theme-title' : 'page-title'}}" onclick="back">主题</text>
       <text class="{{isRing10 ? 'ring-theme-clock' : 'clock'}}">{{clock}}</text>
     </div>
@@ -15,7 +16,7 @@
 <script>
 import storage from "@system.storage"
 import { readIsRing10 } from "../../common/device.js"
-import { replacePage } from "../../common/navigation.js"
+import { replacePage, backPage, backOnRightSwipe } from "../../common/navigation.js"
 
 const THEME_KEY = "bandmedia_theme_v1"
 
@@ -54,7 +55,8 @@ export default {
   },
   selectDay() { this.saveTheme("day") },
   selectNight() { this.saveTheme("night") },
-  back() { replacePage("/pages/settings") }
+  back() { backPage() },
+  swipeBack(event) { backOnRightSwipe(event) }
 }
 </script>
 

@@ -1,6 +1,6 @@
 <template>
-  <div class="{{isRing10 ? 'ring-interface-page' : 'interface-page'}}">
-    <div class="{{isRing10 ? 'ring-interface-top' : 'top-bar'}}"><text class="{{isRing10 ? 'ring-interface-title' : 'page-title'}}" onclick="back">界面</text><text class="{{isRing10 ? 'ring-interface-clock' : 'clock'}}">{{clock}}</text></div>
+  <div class="{{isRing10 ? 'ring-interface-page' : 'interface-page'}}" onswipe="swipeBack">
+    <div class="{{isRing10 ? 'ring-interface-top' : 'top-bar'}}"><div if="{{!isRing10}}" class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div><text class="{{isRing10 ? 'ring-interface-title' : 'page-title'}}" onclick="back">界面</text><text class="{{isRing10 ? 'ring-interface-clock' : 'clock'}}">{{clock}}</text></div>
     <div class="{{isRing10 ? 'ring-interface-list' : 'interface-list'}}">
       <div class="{{isRing10 ? 'ring-interface-row' : 'interface-row'}}" onclick="selectPortrait"><image class="interface-icon" src="/common/interface-portrait.png"></image><text class="interface-text">竖屏</text><div if="{{orientation === 'portrait'}}" class="{{isRing10 ? 'ring-selected-dot' : 'selected-dot'}}"></div></div>
       <div class="{{isRing10 ? 'ring-interface-row' : 'interface-row'}}" onclick="selectLandscape"><image class="interface-icon" src="/common/interface-landscape.png"></image><text class="interface-text">横屏</text><div if="{{orientation === 'landscape'}}" class="{{isRing10 ? 'ring-selected-dot' : 'selected-dot'}}"></div></div>
@@ -11,7 +11,7 @@
 import router from "@system.router"
 import { readIsRing10 } from "../../common/device.js"
 import { readInterfaceOrientation, writeInterfaceOrientation } from "../../common/interface.js"
-import { replacePage } from "../../common/navigation.js"
+import { backPage, backOnRightSwipe } from "../../common/navigation.js"
 export default {
   private: { clock: "--:--", orientation: "portrait", isRing10: false },
   onInit() { this.refreshClock(); readIsRing10(value => { this.isRing10 = value }); readInterfaceOrientation(value => { this.orientation = value }); this.timer = setInterval(() => this.refreshClock(), 1000) },
@@ -20,7 +20,8 @@ export default {
   openRoot(uri) { router.push({ uri, params: { ___PARAM_LAUNCH_FLAG___: "clearTask" } }) },
   selectPortrait() { this.orientation = "portrait"; writeInterfaceOrientation("portrait", () => this.openRoot("/pages/index")) },
   selectLandscape() { this.orientation = "landscape"; writeInterfaceOrientation("landscape", () => this.openRoot("/pages/landscape")) },
-  back() { replacePage("/pages/settings") }
+  back() { backPage() },
+  swipeBack(event) { backOnRightSwipe(event) }
 }
 </script>
 <style>

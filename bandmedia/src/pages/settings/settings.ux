@@ -1,6 +1,7 @@
 <template>
-  <div class="{{isRing10 ? 'ring-settings-page' : 'settings-page'}}">
+  <div class="{{isRing10 ? 'ring-settings-page' : 'settings-page'}}" onswipe="swipeBack">
     <div class="{{isRing10 ? 'ring-settings-top' : 'top-bar'}}">
+      <div if="{{!isRing10}}" class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div>
       <text class="{{isRing10 ? 'ring-settings-title' : 'page-title'}}" onclick="back">设置</text>
       <text class="{{isRing10 ? 'ring-settings-clock' : 'clock'}}">{{clock}}</text>
     </div>
@@ -20,7 +21,7 @@
 <script>
 import app from "@system.app"
 import { readIsRing10 } from "../../common/device.js"
-import { replacePage, openPlayerRoot } from "../../common/navigation.js"
+import { replacePage, backPage, backOnRightSwipe } from "../../common/navigation.js"
 export default {
   private: { clock: "--:--", isRing10: false },
   onInit() { this.refreshClock(); readIsRing10(value => { this.isRing10 = value }); this.timer = setInterval(() => this.refreshClock(), 1000) },
@@ -31,13 +32,14 @@ export default {
   routeLyrics() { replacePage("/pages/lyrics-settings") },
   routeAbout() { replacePage("/pages/about") },
   exitApp() { app.terminate() },
-  back() { openPlayerRoot() }
+  back() { backPage() },
+  swipeBack(event) { backOnRightSwipe(event) }
 }
 </script>
 <style>
 text,input{font-family:MiSans,sans-serif}
 .settings-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;overflow:hidden}
-.top-bar{position:absolute;left:0;top:0;width:336px;height:78px;background-color:#000}
+.top-bar{position:absolute;left:0;top:0;width:336px;height:78px;background-color:#000}.back-button{position:absolute;left:8px;top:8px;width:68px;height:62px;align-items:center;justify-content:center}.back-icon{width:40px;height:40px}
 
 
 .page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}

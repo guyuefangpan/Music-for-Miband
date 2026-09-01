@@ -35,6 +35,7 @@ class WearBridge private constructor(private val context: Context) {
         private const val ARTWORK_PART_SIZE = 40_000
         private const val MAX_ARTWORK_CHARS = ARTWORK_PART_SIZE * 3
         private const val PNG_DATA_URI_PREFIX = "data:image/png;base64,"
+        private const val JPEG_DATA_URI_PREFIX = "data:image/jpeg;base64,"
         private const val HEARTBEAT_MS = 5_000L
         private const val HEARTBEAT_TIMEOUT_MS = 20_000L
         private const val DISCOVERY_TIMEOUT_MS = 8_000L
@@ -74,6 +75,7 @@ class WearBridge private constructor(private val context: Context) {
     private var connectionNodeId: String? = null
     private var handshaked = false
     private var deviceInfoReceived = false
+    private var artworkFormat = "png"
     private var appLaunchedForSession = false
     private var sessionId = ""
     private var handshakeSent = false
@@ -378,8 +380,8 @@ class WearBridge private constructor(private val context: Context) {
         if (blockedTransferMediaKey.isNotBlank() && blockedTransferMediaKey != mediaKey) {
             blockedTransferMediaKey = ""
         }
-        val pngArtwork = normalizeArtworkToPng(media.albumArt)
-        val artworkId = if (pngArtwork.isBlank()) "" else Integer.toHexString(pngArtwork.hashCode())
+        val normalizedArtwork = normalizeArtwork(media.albumArt)
+        val artworkId = if (normalizedArtwork.isBlank()) "" else Integer.toHexString(normalizedArtwork.hashCode())
         val lyricsId = if (media.lyrics.isEmpty()) "" else Integer.toHexString(media.lyrics.hashCode())
         sendJson(JSONObject().apply {
             put("type", "music_info")
@@ -403,14 +405,14 @@ class WearBridge private constructor(private val context: Context) {
             lastArtworkKey = artworkKey
             handler.removeCallbacks(artworkAckTimeout)
             pendingArtworkAckId = artworkId
-            pendingArtwork = pngArtwork
+            pendingArtwork = normalizedArtwork
             pendingArtworkMediaKey = mediaKey
             artworkSendAttempt = 0
             artworkProbeAttempt = 0
             pendingArtworkProbeId = ""
             artworkLocallySent = false
             artworkWatchConfirmed = false
-            if (artworkId.isNotBlank() && pngArtwork.isNotBlank()) {
+            if (artworkId.isNotBlank() && normalizedArtwork.isNotBlank()) {
                 probeArtworkOnWatch()
             }
         }
@@ -421,8 +423,8 @@ class WearBridge private constructor(private val context: Context) {
         val artwork = pendingArtwork
         if (!deviceInfoReceived || id.isBlank() || artwork.isBlank()) return
         val bytes = runCatching { Base64.decode(artwork.substringAfter(',', artwork), Base64.DEFAULT) }.getOrNull()
-        if (bytes == null || !isCompletePng(bytes)) {
-            retryArtworkOrAbort("封面预检前 PNG 解码失败")
+        if (bytes == null || !isCompleteArtwork(bytes)) {
+            retryArtworkOrAbort("封面预检前 ${artworkFormat.uppercase()} 解码失败")
             return
         }
         val probeId = UUID.randomUUID().toString()
@@ -431,13 +433,13 @@ class WearBridge private constructor(private val context: Context) {
         val checksum = Adler32().apply { update(bytes) }.value
         handler.removeCallbacks(artworkProbeTimeout)
         sendJson(JSONObject().put("type", "artwork_probe")
-            .put("requestId", probeId).put("id", id).put("format", "png")
+            .put("requestId", probeId).put("id", id).put("format", artworkFormat)
             .put("bytes", bytes.size).put("sum", checksum), false, true)
         handler.postDelayed(artworkProbeTimeout, ARTWORK_PROBE_TIMEOUT_MS)
         CommunicationLog.info("TX", "上传前校验手环封面 id=$id attempt=$artworkProbeAttempt/$MAX_ARTWORK_PROBE_ATTEMPTS")
     }
 
-    private fun normalizeArtworkToPng(artwork: String): String {
+    private fun normalizeArtwork(artwork: String): String {
         if (artwork.isBlank()) return ""
         val encoded = artwork.substringAfter(',', "")
         if (encoded.isBlank()) {
@@ -448,12 +450,12 @@ class WearBridge private constructor(private val context: Context) {
             CommunicationLog.warn("MEDIA", "封面 Base64 解码失败，已阻止发送")
             return ""
         }
-        if (isCompletePng(source)) {
-            val canonical = PNG_DATA_URI_PREFIX + Base64.encodeToString(source, Base64.NO_WRAP)
+        if (isCompleteArtwork(source)) {
+            val canonical = artworkPrefix() + Base64.encodeToString(source, Base64.NO_WRAP)
             if (canonical.length <= MAX_ARTWORK_CHARS) return canonical
         }
         val bitmap = BitmapFactory.decodeByteArray(source, 0, source.size) ?: run {
-            CommunicationLog.warn("MEDIA", "封面无法转换为 PNG，已阻止发送")
+            CommunicationLog.warn("MEDIA", "封面无法转换为 ${artworkFormat.uppercase()}，已阻止发送")
             return ""
         }
         return try {
@@ -465,32 +467,37 @@ class WearBridge private constructor(private val context: Context) {
                 val scaled = if (width == bitmap.width && height == bitmap.height) bitmap
                     else Bitmap.createScaledBitmap(bitmap, width, height, true)
                 val output = ByteArrayOutputStream()
-                scaled.compress(Bitmap.CompressFormat.PNG, 100, output)
+                scaled.compress(if (artworkFormat == "jpg") Bitmap.CompressFormat.JPEG else Bitmap.CompressFormat.PNG, if (artworkFormat == "jpg") 88 else 100, output)
                 if (scaled !== bitmap) scaled.recycle()
                 val bytes = output.toByteArray()
-                val value = PNG_DATA_URI_PREFIX + Base64.encodeToString(bytes, Base64.NO_WRAP)
-                if (isCompletePng(bytes) && value.length <= MAX_ARTWORK_CHARS) {
-                    CommunicationLog.info("MEDIA", "封面已在 Android 发送前转换为 PNG ${width}x$height bytes=${bytes.size}")
+                val value = artworkPrefix() + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                if (isCompleteArtwork(bytes) && value.length <= MAX_ARTWORK_CHARS) {
+                    CommunicationLog.info("MEDIA", "封面已在 Android 发送前转换为 ${artworkFormat.uppercase()} ${width}x$height bytes=${bytes.size}")
                     return value
                 }
             }
-            CommunicationLog.warn("MEDIA", "PNG 封面转换后仍超出传输上限，已阻止发送")
+            CommunicationLog.warn("MEDIA", "${artworkFormat.uppercase()} 封面转换后仍超出传输上限，已阻止发送")
             ""
         } finally {
             bitmap.recycle()
         }
     }
 
+    private fun isCompleteJpeg(bytes: ByteArray): Boolean =
+        bytes.size >= 4 && bytes[0].toInt() and 0xff == 0xff && bytes[1].toInt() and 0xff == 0xd8 &&
+            bytes[bytes.size - 2].toInt() and 0xff == 0xff && bytes[bytes.size - 1].toInt() and 0xff == 0xd9
+
     private fun isCompletePng(bytes: ByteArray): Boolean =
-        bytes.size >= 16 &&
-            bytes[0].toInt() and 0xff == 137 && bytes[1].toInt() == 80 &&
-            bytes[2].toInt() == 78 && bytes[3].toInt() == 71 &&
-            bytes[4].toInt() == 13 && bytes[5].toInt() == 10 &&
-            bytes[6].toInt() == 26 && bytes[7].toInt() == 10 &&
+        bytes.size >= 16 && bytes[0].toInt() and 0xff == 137 && bytes[1].toInt() == 80 &&
+            bytes[2].toInt() == 78 && bytes[3].toInt() == 71 && bytes[4].toInt() == 13 &&
+            bytes[5].toInt() == 10 && bytes[6].toInt() == 26 && bytes[7].toInt() == 10 &&
             bytes[bytes.size - 8].toInt() == 73 && bytes[bytes.size - 7].toInt() == 69 &&
             bytes[bytes.size - 6].toInt() == 78 && bytes[bytes.size - 5].toInt() == 68 &&
             bytes[bytes.size - 4].toInt() and 0xff == 174 && bytes[bytes.size - 3].toInt() == 66 &&
             bytes[bytes.size - 2].toInt() == 96 && bytes[bytes.size - 1].toInt() and 0xff == 130
+
+    private fun artworkPrefix() = if (artworkFormat == "jpg") JPEG_DATA_URI_PREFIX else PNG_DATA_URI_PREFIX
+    private fun isCompleteArtwork(bytes: ByteArray) = if (artworkFormat == "jpg") isCompleteJpeg(bytes) else isCompletePng(bytes)
 
     fun forceSyncArtwork(media: SystemMediaState): Boolean {
         if (!deviceInfoReceived) {
@@ -567,8 +574,8 @@ class WearBridge private constructor(private val context: Context) {
     private fun sendAlbumArt(artworkId: String, artwork: String, trackAck: Boolean) {
         val value = artwork.takeIf { it.length <= MAX_ARTWORK_CHARS }.orEmpty()
         if (artworkId.isBlank() || value.isEmpty()) return
-        if (!value.startsWith(PNG_DATA_URI_PREFIX)) {
-            retryArtworkOrAbort("封面不是 PNG")
+        if (!value.startsWith(artworkPrefix())) {
+            retryArtworkOrAbort("封面不是 ${artworkFormat.uppercase()}")
             return
         }
         if (trackAck) artworkSendAttempt++
@@ -590,7 +597,7 @@ class WearBridge private constructor(private val context: Context) {
         val packets = parts.flatMapIndexed { index, part ->
             packetsFor(JSONObject().put("type", "album_art").put("id", artworkId)
                 .put("tx", transferId).put("i", index).put("t", parts.size)
-                .put("format", "png")
+                .put("format", artworkFormat)
                 .put("chars", value.length).put("bytes", decoded.size).put("sum", checksum)
                 .put("d", part).toString())
         }
@@ -868,19 +875,9 @@ class WearBridge private constructor(private val context: Context) {
 
     private fun beginReconnectSession() {
         if (deviceInfoReceived) return
-        handshaked = false
-        appLaunchedForSession = false
-        sessionId = UUID.randomUUID().toString()
-        handshakeSent = false
-        launchAttempt = 0
-        incomingChunks.clear()
-        updateState(WearState.CONNECTING, "检测到断开，正在重新打开 Quick App")
-        if (node != null && listenerInstalled) {
-            launchQuickAppUntilReady()
-        } else {
-            updateState(WearState.DISCONNECTED, "互联节点不可用，正在重新发现")
-            start()
-        }
+        // Older firmware can leave a stale Node/listener registration after a
+        // Bluetooth reconnect. Rebuild the SDK layer and discover a fresh node.
+        softRestartConnectionLayer("断线后重新发现互联节点")
     }
 
     private fun handleIncoming(raw: String) {
@@ -908,6 +905,7 @@ class WearBridge private constructor(private val context: Context) {
             }
             "device_info" -> {
                 if (!handshaked || json.optString("session") != sessionId) return
+                artworkFormat = if (json.optString("artworkFormat") == "jpg") "jpg" else "png"
                 val firstReady = !deviceInfoReceived
                 deviceInfoReceived = true
                 handler.removeCallbacks(launchRetry)
@@ -936,7 +934,7 @@ class WearBridge private constructor(private val context: Context) {
                 val code = json.optString("code").lowercase()
                 var artworkAckVerified = false
                 if (!ok && asset == "artwork" && (code == "invalid_jpeg" || code == "invalid_jepg")) {
-                    CommunicationLog.error("RX", "检测到旧版 JPEG 快应用协议 code=$code；当前 Android 仅发送 PNG，请更新 RPK")
+                    CommunicationLog.error("RX", "检测到不兼容的旧版封面协议 code=$code，请更新 RPK")
                     softRestartConnectionLayer("检测到旧版封面协议 $code")
                     return
                 }
@@ -946,24 +944,24 @@ class WearBridge private constructor(private val context: Context) {
                             Base64.decode(pendingArtwork.substringAfter(',', pendingArtwork), Base64.DEFAULT)
                         }.getOrNull()
                         val expectedSum = pendingBytes?.let { Adler32().apply { update(it) }.value }
-                        val ackVerified = json.optString("verified") == "png_structure_v1"
-                        val ackFormat = json.optString("format") == "png"
+                        val ackVerified = json.optString("verified") == if (artworkFormat == "jpg") "jpeg_structure_v1" else "png_structure_v1"
+                        val ackFormat = json.optString("format") == artworkFormat
                         val ackUri = json.optString("uri")
                         val ackMatches = pendingBytes != null &&
                             json.optInt("bytes", -1) == pendingBytes.size &&
                             json.optLong("sum", -1L) == expectedSum &&
-                            ackVerified && ackFormat && ackUri.endsWith(".png")
+                            ackVerified && ackFormat && ackUri.endsWith(if (artworkFormat == "jpg") ".jpg" else ".png")
                         if (ackMatches) {
                             artworkAckVerified = true
                             artworkWatchConfirmed = true
                             completeArtworkIfConfirmed()
                         } else {
-                            retryArtworkOrAbort("手环封面确认内容不匹配或未完成 PNG 发布验证")
+                            retryArtworkOrAbort("手环封面确认内容不匹配或未完成 ${artworkFormat.uppercase()} 发布验证")
                         }
                     } else retryArtworkOrAbort("手环写入确认失败 code=${json.optString("code")}")
                 }
                 if (ok && asset != "artwork") CommunicationLog.info("RX", "$asset 已写入手环 id=$id")
-                else if (artworkAckVerified) CommunicationLog.info("RX", "手环已校验并发布 PNG 封面 id=$id")
+                else if (artworkAckVerified) CommunicationLog.info("RX", "手环已校验并发布 ${artworkFormat.uppercase()} 封面 id=$id")
                 else if (ok) CommunicationLog.warn("RX", "忽略未通过完整性校验的封面成功回执 id=$id")
                 else CommunicationLog.warn("RX", "$asset 写入失败 id=$id code=${json.optString("code")}")
             }
@@ -975,7 +973,7 @@ class WearBridge private constructor(private val context: Context) {
                 pendingArtworkProbeId = ""
                 val pendingBytes = runCatching { Base64.decode(pendingArtwork.substringAfter(',', pendingArtwork), Base64.DEFAULT) }.getOrNull() ?: return
                 val expectedSum = Adler32().apply { update(pendingBytes) }.value
-                val metadataMatches = json.optString("format") == "png" &&
+                val metadataMatches = json.optString("format") == artworkFormat &&
                     json.optInt("bytes", -1) == pendingBytes.size &&
                     json.optLong("sum", -1L) == expectedSum
                 if (json.optBoolean("cached") && metadataMatches) {

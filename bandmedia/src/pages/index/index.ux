@@ -3,7 +3,6 @@
     <image if="{{theme === 'cover' && connected && albumArt && !isRing10}}" class="cover-background-base" src="{{albumArt}}"></image>
     <image if="{{theme === 'cover' && connected && albumArt && !isRing10}}" class="cover-background-blur" src="{{albumArt}}" style="filter:blur({{coverBlurPx}}px)"></image>
     <div if="{{theme === 'cover' && connected && albumArt && !isRing10}}" class="cover-background-tint" style="opacity:{{coverOverlayOpacity}}"></div>
-    <text if="{{!isRing10}}" class="index-title" onclick="routeLyrics">Starry</text>
     <text if="{{!isRing10}}" class="{{theme === 'day' ? 'clock-day' : 'clock-night'}}">{{clock}}</text>
     <div if="{{!isRing10}}" class="metadata" onclick="routeLyrics">
       <text class="{{theme === 'day' ? 'song-day' : 'song-night'}}">{{song}}</text>
@@ -13,10 +12,7 @@
     <div if="{{!isRing10}}" class="cover-area">
       <div if="{{connected}}" class="cover-shell" onclick="routeLyrics">
         <image if="{{albumArt}}" class="cover" src="{{albumArt}}"></image>
-        <div if="{{!albumArt}}" class="cover-empty">
-          <text class="cover-note">♪</text>
-          <text class="cover-label">{{album || song}}</text>
-        </div>
+        <image if="{{!albumArt}}" class="cover-empty" src="/common/no-album.png"></image>
       </div>
       <text if="{{!connected}}" class="disconnected-message">{{connectionState}}</text>
     </div>
@@ -43,17 +39,20 @@
       <div class="control-small" onclick="routeVolume"><image class="volume-icon" src="{{theme === 'day' ? '/common/volume-day.png' : '/common/volume.png'}}"></image></div>
     </div>
 
-    <div if="{{isRing10}}" class="ring-player">
-      <text class="ring-clock">{{clock}}</text>
-      <div class="ring-metadata" onclick="routeLyrics"><text class="ring-song">{{song}}</text><text class="ring-artist">{{artist}}</text></div>
-      <div if="{{connected}}" class="ring-cover-shell" onclick="routeLyrics">
+    <div if="{{isRing10}}" class="{{theme === 'day' ? 'ring-player ring-player-day' : (theme === 'cover' ? 'ring-player ring-player-cover' : 'ring-player ring-player-night')}}">
+      <image if="{{theme === 'cover' && albumArt}}" class="ring-theme-background-base" src="{{albumArt}}"></image>
+      <image if="{{theme === 'cover' && albumArt}}" class="ring-theme-background-blur" src="{{albumArt}}" style="filter:blur({{coverBlurPx}}px)"></image>
+      <div if="{{theme === 'cover' && albumArt}}" class="ring-theme-background-tint" style="opacity:{{coverOverlayOpacity}}"></div>
+      <text class="{{theme === 'day' ? 'ring-clock ring-text-day' : 'ring-clock'}}">{{clock}}</text>
+      <div class="ring-metadata" onclick="routeLyrics"><text class="{{theme === 'day' ? 'ring-song ring-text-day' : 'ring-song'}}">{{song}}</text><text class="{{theme === 'day' ? 'ring-artist ring-muted-day' : 'ring-artist'}}">{{artist}}</text></div>
+      <div if="{{connected}}" class="{{theme === 'day' ? 'ring-cover-shell ring-cover-shell-day' : 'ring-cover-shell'}}" onclick="routeLyrics">
         <image if="{{albumArt}}" class="ring-cover" src="{{albumArt}}"></image>
-        <div if="{{!albumArt}}" class="ring-cover-empty"><text class="ring-cover-note">♪</text></div>
+        <image if="{{!albumArt}}" class="ring-cover-empty" src="/common/no-album.png"></image>
       </div>
       <text if="{{!connected}}" class="ring-disconnected-message">{{connectionState}}</text>
-      <div class="ring-progress-row"><text class="ring-progress-time">{{elapsed}}</text><div class="ring-progress-slider"><div class="ring-progress-track"><div if="{{hasProgress}}" class="ring-progress-fill" style="width:{{ringProgressWidth}}px"></div></div><div if="{{hasProgress}}" class="ring-progress-knob" style="left:{{ringProgressKnobLeft}}px"></div></div><text class="ring-progress-time ring-remaining">{{remaining}}</text></div>
-      <div class="ring-main-controls"><div class="ring-control" onclick="previous"><image class="ring-previous" src="/common/previous.png"></image></div><div class="ring-play" onclick="togglePlayback"><image if="{{!playing}}" class="ring-play-image" src="/common/play.png"></image><div if="{{playing}}" class="ring-pause"><div class="ring-pause-bar"></div><div class="ring-pause-bar"></div></div></div><div class="ring-control" onclick="next"><image class="ring-next" src="/common/next.png"></image></div></div>
-      <div class="ring-secondary-controls"><div class="ring-control" onclick="routeSettings"><image class="ring-settings" src="/common/setting.png"></image></div><div class="ring-control" onclick="routeVolume"><image class="ring-volume" src="/common/volume.png"></image></div></div>
+      <div class="ring-progress-row"><text class="{{theme === 'day' ? 'ring-progress-time ring-text-day' : 'ring-progress-time'}}">{{elapsed}}</text><div class="ring-progress-slider"><div class="{{theme === 'day' ? 'ring-progress-track ring-progress-track-day' : (theme === 'night' ? 'ring-progress-track ring-progress-track-night' : 'ring-progress-track')}}"><div if="{{hasProgress}}" class="ring-progress-fill" style="width:{{ringProgressWidth}}px"></div></div><div if="{{hasProgress}}" class="ring-progress-knob" style="left:{{ringProgressKnobLeft}}px"></div></div><text class="{{theme === 'day' ? 'ring-progress-time ring-remaining ring-text-day' : 'ring-progress-time ring-remaining'}}">{{remaining}}</text></div>
+      <div class="ring-main-controls"><div class="ring-control" onclick="previous"><image class="ring-previous" src="{{theme === 'day' ? '/common/previous-day.png' : '/common/previous.png'}}"></image></div><div class="ring-play" onclick="togglePlayback"><image if="{{!playing && theme !== 'day'}}" class="ring-play-image" src="/common/play.png"></image><div if="{{!playing && theme === 'day'}}" class="ring-play-day"><div class="ring-play-day-triangle"></div></div><div if="{{playing}}" class="{{theme === 'day' ? 'ring-pause ring-pause-day' : 'ring-pause'}}"><div class="ring-pause-bar"></div><div class="ring-pause-bar"></div></div></div><div class="ring-control" onclick="next"><image class="ring-next" src="{{theme === 'day' ? '/common/next-day.png' : '/common/next.png'}}"></image></div></div>
+      <div class="ring-secondary-controls"><div class="ring-control" onclick="routeSettings"><image class="ring-settings" src="{{theme === 'day' ? '/common/setting-day.png' : '/common/setting.png'}}"></image></div><div class="ring-control" onclick="routeVolume"><image class="ring-volume" src="{{theme === 'day' ? '/common/volume-day.png' : '/common/volume.png'}}"></image></div></div>
     </div>
 
   </div>
@@ -96,8 +95,10 @@ export default {
     coverOverlayOpacity: 0.2
   },
   onInit() {
-    readInterfaceOrientation(value => { if (value === "landscape") router.push({ uri: "/pages/landscape", params: { ___PARAM_LAUNCH_FLAG___: "clearTask" } }) })
-    this.detectDevice()
+    readIsRing10(isRing10 => {
+      this.isRing10 = isRing10
+      readInterfaceOrientation(value => { if (value === "landscape") router.push({ uri: "/pages/landscape", params: { ___PARAM_LAUNCH_FLAG___: "clearTask" } }) })
+    })
     this.refreshClock()
     this.loadTheme()
     readDebugMode(enabled => { this.debugMode = enabled; this.refreshData() })
@@ -108,7 +109,7 @@ export default {
   },
   onShow() { this.syncOrientation(); this.loadTheme() },
   onRefresh() { this.syncOrientation(); this.loadTheme() },
-  syncOrientation() { readInterfaceOrientation(value => { if (value === "landscape") router.push({ uri: "/pages/landscape", params: { ___PARAM_LAUNCH_FLAG___: "clearTask" } }) }) },
+  syncOrientation() { readIsRing10(isRing10 => { this.isRing10 = isRing10; readInterfaceOrientation(value => { if (value === "landscape") router.push({ uri: "/pages/landscape", params: { ___PARAM_LAUNCH_FLAG___: "clearTask" } }) }) }) },
   loadTheme() { readTheme(theme => { this.theme = theme }); readCoverBackground(value => { this.coverBlurPx = Math.round(value.blur * 24 / 100); this.coverOverlayOpacity = value.overlay / 100 }) },
   refreshData() { this.loadSyncData() },
   detectDevice() { readIsRing10(value => { this.isRing10 = value }) },
@@ -220,4 +221,7 @@ text,input{font-family:MiSans,sans-serif}
 .ring-progress-track{position:absolute;left:0;top:5px;width:124px;height:5px;margin-left:0;margin-right:0}
 .ring-progress-knob{position:absolute;top:0;width:15px;height:15px;border-radius:8px;border-width:2px;border-color:#fff;background-color:#70b6e8}
 .progress-fill-day{background-color:#388ac2}.progress-knob-day{border-color:#444}
+</style>
+<style>
+.ring-player-day{background-color:#fff}.ring-player-night{background-color:#242424}.ring-player-cover{background-color:#6f96b7}.ring-theme-background-base{position:absolute;left:0;top:0;width:212px;height:520px}.ring-theme-background-blur{position:absolute;left:-50px;top:-80px;width:312px;height:680px}.ring-theme-background-tint{position:absolute;left:0;top:0;width:212px;height:520px;background-color:#000}.ring-text-day{color:#555}.ring-muted-day{color:#999}.ring-cover-shell-day{border-color:#ddd;background-color:#eee}.ring-progress-track-day{background-color:#d8e5ee}.ring-progress-track-night{background-color:#586d7c}.ring-play-day{width:62px;height:62px;border-radius:31px;border-width:2px;border-color:#555;align-items:center;justify-content:center}.ring-play-day-triangle{width:0;height:0;margin-left:5px;border-top-width:12px;border-bottom-width:12px;border-left-width:19px;border-top-color:transparent;border-bottom-color:transparent;border-left-color:#555;border-style:solid}.ring-pause-day{border-color:#555}.ring-pause-day-bar{background-color:#555}
 </style>

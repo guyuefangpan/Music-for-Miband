@@ -1,5 +1,5 @@
 <template>
-  <div class="volume-page">
+  <div class="volume-page" onswipe="swipeBack">
     <div if="{{!isRing10}}" class="standard-volume">
       <text class="volume-label">音量</text>
       <input class="volume-button plus" type="button" value="+" onclick="increase" />
@@ -20,7 +20,7 @@
 <script>
 import { readIsRing10 } from "../../common/device.js"
 import {readMediaState, sendControlCommand} from "../../common/media-sync.js"
-import { openPlayerRoot } from "../../common/navigation.js"
+import { backPage, backOnRightSwipe } from "../../common/navigation.js"
 export default {
   private: {volume: 0, volumeHeight: 0, ringVolumeHeight: 0, isRing10: false, volumeReady: false},
   onInit() {
@@ -55,8 +55,9 @@ export default {
     sendControlCommand("volume_down")
   },
   back() {
-    openPlayerRoot()
-  }
+    backPage()
+  },
+  swipeBack(event) { backOnRightSwipe(event) }
 }
 </script>
 <style>

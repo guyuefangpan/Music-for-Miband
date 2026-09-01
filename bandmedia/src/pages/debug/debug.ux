@@ -1,19 +1,20 @@
 <template>
-  <div class="debug-page">
+  <div class="debug-page" onswipe="swipeBack">
     <div class="top-bar"><text class="page-title" onclick="back">Debug</text><text class="clock">{{clock}}</text></div>
-    <div class="debug-setting" onclick="toggleDebug"><text class="debug-label">假如我已经连接上了手机</text><div class="{{debugMode ? 'debug-switch-on' : 'debug-switch-off'}}"><div class="{{debugMode ? 'debug-knob-on' : 'debug-knob-off'}}"></div></div></div>
+    <div class="debug-setting" onclick="toggleDebug"><text class="debug-label">连接手机=true</text><div class="{{debugMode ? 'debug-switch-on' : 'debug-switch-off'}}"><div class="{{debugMode ? 'debug-knob-on' : 'debug-knob-off'}}"></div></div></div>
   </div>
 </template>
 <script>
 import { readDebugMode, writeDebugMode } from "../../common/debug.js"
-import { replacePage } from "../../common/navigation.js"
+import { backPage, backOnRightSwipe } from "../../common/navigation.js"
 export default {
   private: { clock: "--:--", debugMode: false },
   onInit() { this.refreshClock(); readDebugMode(value => { this.debugMode = value }); this.timer = setInterval(() => this.refreshClock(), 1000) },
   onDestroy() { if (this.timer) clearInterval(this.timer) },
   refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
   toggleDebug() { this.debugMode = !this.debugMode; writeDebugMode(this.debugMode) },
-  back() { replacePage("/pages/about") }
+  back() { backPage() },
+  swipeBack(event) { backOnRightSwipe(event) }
 }
 </script>
 <style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="portrait-viewport">
+  <div class="portrait-viewport" onswipe="swipeBack">
   <div class="landscape-volume-page">
     <div class="minus-button" onclick="decrease"><text class="minus-mark">−</text></div>
     <div class="volume-slider"><div class="volume-track"><div class="volume-level" style="width:{{volumeWidth}}px"></div></div></div>
@@ -11,14 +11,14 @@
 </template>
 <script>
 import { readMediaState, normalizeMediaState, sendControlCommand } from "../../common/media-sync.js"
-import { openPlayerRoot } from "../../common/navigation.js"
+import { backPage, backOnRightSwipe } from "../../common/navigation.js"
 export default {
   private: { volume: 0, volumeWidth: 0, volumeReady: false },
   onInit() { this.load(); this.timer = setInterval(() => this.load(), 200) },
   onDestroy() { if (this.timer) clearInterval(this.timer) },
   load() { const realtime = this.$app.$def.getRealtimeMediaState(); if (realtime && realtime.state) { this.apply(normalizeMediaState(realtime.state, realtime.connected)); return } readMediaState(media => this.apply(media), () => {}) },
   apply(media) { if (!media.volumeValid) return; this.volumeReady = true; this.volume = media.volume; this.volumeWidth = Math.round(media.volume * 2.06) },
-  increase() { if (this.volumeReady) sendControlCommand("volume_up") }, decrease() { if (this.volumeReady) sendControlCommand("volume_down") }, back() { openPlayerRoot() }
+  increase() { if (this.volumeReady) sendControlCommand("volume_up") }, decrease() { if (this.volumeReady) sendControlCommand("volume_down") }, back() { backPage() }, swipeBack(event) { backOnRightSwipe(event) }
 }
 </script>
 <style>

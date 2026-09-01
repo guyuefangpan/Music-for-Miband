@@ -1,6 +1,6 @@
 <template>
-  <div class="{{isRing10 ? 'ring-background-page' : 'background-page'}}">
-    <div class="{{isRing10 ? 'ring-background-top' : 'top-bar'}}"><text class="{{isRing10 ? 'ring-background-title' : 'page-title'}}" onclick="back">主题</text><text class="{{isRing10 ? 'ring-background-clock' : 'clock'}}">{{clock}}</text></div>
+  <div class="{{isRing10 ? 'ring-background-page' : 'background-page'}}" onswipe="swipeBack">
+    <div class="{{isRing10 ? 'ring-background-top' : 'top-bar'}}"><div if="{{!isRing10}}" class="back-button" onclick="back"><image class="back-icon" src="/common/back.png"></image></div><text class="{{isRing10 ? 'ring-background-title' : 'page-title'}}" onclick="back">主题</text><text class="{{isRing10 ? 'ring-background-clock' : 'clock'}}">{{clock}}</text></div>
     <scroll class="{{isRing10 ? 'ring-background-scroll' : 'settings-scroll'}}" scroll-y="true">
       <div class="{{isRing10 ? 'ring-background-content' : 'settings-content'}}">
         <div class="{{isRing10 ? 'ring-background-card' : 'settings-card'}}">
@@ -28,7 +28,7 @@
 </template>
 <script>
 import { readCoverBackground, writeCoverOverlay, writeCoverBlur } from "../../common/theme.js"
-import { replacePage } from "../../common/navigation.js"
+import { backPage, backOnRightSwipe } from "../../common/navigation.js"
 import { readIsRing10 } from "../../common/device.js"
 export default {
   private: { clock: "--:--", overlay: 20, blur: 100, overlayOpacity: 0.2, blurPx: 24, isRing10: false },
@@ -44,12 +44,14 @@ export default {
   increaseOverlay() { this.setOverlay(this.overlay + 5) },
   decreaseBlur() { this.setBlur(this.blur - 10) },
   increaseBlur() { this.setBlur(this.blur + 10) },
-  back() { replacePage("/pages/theme") }
+  back() { backPage() },
+  swipeBack(event) { backOnRightSwipe(event) }
 }
 </script>
 <style>
 text,input{font-family:MiSans,sans-serif}.background-page{width:336px;height:480px;position:relative;background-color:#000;border-radius:48px;overflow:hidden}.top-bar{position:absolute;left:0;top:0;width:336px;height:78px;background-color:#000}.page-title{position:absolute;left:118px;top:29px;width:100px;color:#fff;font-size:30px;font-weight:500;line-height:38px;text-align:center}.clock{position:absolute;right:26px;top:13px;width:58px;color:#f2f2f2;font-size:20px;font-weight:500;line-height:24px;text-align:right}.settings-scroll{position:absolute;left:0;top:78px;width:336px;height:402px}.settings-content{width:336px;height:490px;align-items:center;flex-direction:column}.settings-card{position:relative;width:304px;height:456px;margin-top:11px;border-radius:34px;background-color:#303030;overflow:hidden}.setting-title,.setting-note,.setting-value{position:absolute;color:#fff}.setting-title{left:17px;width:270px;font-size:29px;line-height:39px}.setting-note{left:17px;width:270px;color:#999;font-size:18px;line-height:27px}.overlay-title{top:14px}.overlay-note{top:54px}.blur-title{top:148px}.blur-note{top:188px}.setting-value{left:105px;width:94px;font-size:30px;line-height:40px;text-align:center}.overlay-value{top:82px}.blur-value{top:216px}.minus,.plus{position:absolute;width:70px;height:60px;align-items:center;justify-content:center}.overlay-plus{left:10px;top:73px}.overlay-minus{right:10px;top:73px}.blur-plus{left:10px;top:207px}.blur-minus{right:10px;top:207px}.plus-horizontal,.minus-line{position:absolute;width:31px;height:5px;border-radius:3px;background-color:#fff}.plus-vertical{position:absolute;width:5px;height:31px;border-radius:3px;background-color:#fff}.preview{position:absolute;left:21px;top:295px;width:262px;height:149px;border-radius:21px;overflow:hidden;align-items:center;justify-content:center}.preview-base{position:absolute;left:0;top:0;width:262px;height:149px}.preview-blur{position:absolute;left:-36px;top:-24px;width:334px;height:197px}.preview-overlay{position:absolute;left:0;top:0;width:262px;height:149px;background-color:#000}.preview-text{position:absolute;left:20px;top:47px;width:222px;color:#fff;font-size:20px;line-height:27px;text-align:center;lines:2}.bottom-space{width:336px;height:23px}
 </style>
+<style>.back-button{position:absolute;left:8px;top:8px;width:68px;height:62px;align-items:center;justify-content:center}.back-icon{width:40px;height:40px}</style>
 <style>
 .clock{font-size:20px;line-height:24px}.settings-card{width:316px}.preview-overlay{background-color:#000}
 .ring-background-page{width:212px;height:520px;position:relative;background-color:#000;border-radius:106px;overflow:hidden}.ring-background-top{position:absolute;left:0;top:0;width:212px;height:80px;background-color:#000}.ring-background-title{position:absolute;left:56px;top:32px;width:100px;color:#fff;font-size:30px;line-height:38px;text-align:center}.ring-background-clock{position:absolute;right:52px;top:8px;width:108px;color:#f2f2f2;font-size:20px;line-height:24px;text-align:center}.ring-background-scroll{position:absolute;left:0;top:80px;width:212px;height:440px}.ring-background-content{width:212px;height:490px;align-items:center;flex-direction:column}.ring-background-card{position:relative;width:192px;height:422px;margin-top:9px;border-radius:34px;background-color:#303030;overflow:hidden;padding-left:17px;padding-right:15px}.ring-overlay-value,.ring-blur-value{position:absolute;left:50px;width:92px;color:#fff;font-size:30px;line-height:40px;text-align:center}.ring-overlay-value{top:82px}.ring-blur-value{top:216px}.ring-background-preview{position:absolute;left:17px;top:295px;width:158px;height:149px;border-radius:21px;overflow:hidden}.ring-preview-base{position:absolute;left:0;top:0;width:158px;height:149px}.ring-preview-blur{position:absolute;left:-30px;top:-24px;width:218px;height:180px}.ring-preview-overlay{position:absolute;left:0;top:0;width:158px;height:149px;background-color:#000}.ring-preview-text{position:absolute;left:8px;top:47px;width:142px;color:#fff;font-size:17px;line-height:25px;text-align:center;lines:2}

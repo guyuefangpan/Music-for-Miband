@@ -307,24 +307,25 @@ export default {
     const expectedBytes = Number(message.bytes || 0)
     const expectedSum = Number(message.sum || 0)
     const format = String(message.format || "")
-    if (!requestId || !id || format !== "png" || expectedBytes < 1) return
+    if (!requestId || !id || (format !== "jpg" && format !== "png") || expectedBytes < 1) return
     const published = this.publishedArtwork || {}
     const currentUri = this.lastMediaState ? String(this.lastMediaState.albumArt || "") : ""
     const publishedUri = String(published.uri || "")
-    const cached = String(published.id || "") === id && publishedUri.slice(-4) === ".png" && Number(published.bytes || 0) === expectedBytes && Number(published.sum || 0) === expectedSum && String(published.format || "") === "png"
+    const suffix = format === "jpg" ? ".jpg" : ".png"
+    const cached = String(published.id || "") === id && publishedUri.slice(-4) === suffix && Number(published.bytes || 0) === expectedBytes && Number(published.sum || 0) === expectedSum && String(published.format || "") === format
     if (cached) {
       if (this.lastMediaState && currentUri !== publishedUri) {
         this.lastMediaState.albumArt = publishedUri
         this.persistMediaState(this.lastMediaState)
         this.publishRealtimeState()
       }
-      this.send({ type: "artwork_probe_result", requestId: requestId, id: id, cached: true, cleared: false, format: "png", bytes: expectedBytes, sum: expectedSum, uri: publishedUri })
+      this.send({ type: "artwork_probe_result", requestId: requestId, id: id, cached: true, cleared: false, format: format, bytes: expectedBytes, sum: expectedSum, uri: publishedUri })
       return
     }
-    // A cache miss must not destroy the currently displayed cover. The new PNG
+    // A cache miss must not destroy the currently displayed cover. The new image
     // is written to a unique URI and replaces this one only after validation.
     this.albumArtChunks = {}
-    this.send({ type: "artwork_probe_result", requestId: requestId, id: id, cached: false, retained: true, format: "png", bytes: expectedBytes, sum: expectedSum })
+    this.send({ type: "artwork_probe_result", requestId: requestId, id: id, cached: false, retained: true, format: format, bytes: expectedBytes, sum: expectedSum })
   },
   handleAlbumArt(message) {
     const id = String(message.id || "")
@@ -335,7 +336,7 @@ export default {
     const expectedBytes = Number(message.bytes || 0)
     const expectedSum = Number(message.sum || 0)
     const format = String(message.format || "")
-    if (!id || !transferId || format !== "png" || total < 1 || total > 3 || index < 0 || index >= total || expectedChars < 1 || expectedBytes < 1) return
+    if (!id || !transferId || (format !== "jpg" && format !== "png") || total < 1 || total > 3 || index < 0 || index >= total || expectedChars < 1 || expectedBytes < 1) return
     if (!this.lastMediaState || this.lastMediaState.artworkId !== id) return
     const groupKey = id + "|" + transferId
     let group = this.albumArtChunks[groupKey]
@@ -357,14 +358,16 @@ export default {
       if (!bytes || !bytes.length) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "decode_empty" }); return }
       if (bytes.length !== expectedBytes) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "byte_length_mismatch" }); return }
       if (this.adler32(bytes) !== expectedSum) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "checksum_mismatch" }); return }
-      if (!this.validatePngStructure(bytes)) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "invalid_png_structure" }); return }
+      const validStructure = format === "jpg" ? this.validateJpegStructure(bytes) : this.validatePngStructure(bytes)
+      if (!validStructure) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "invalid_" + format + "_structure" }); return }
       const safeTransferId = transferId.replace(/[^0-9A-Za-z_-]/g, "").slice(0, 64)
       if (!safeTransferId) { this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "invalid_transfer_id" }); return }
       // A unique URI prevents the Vela image decoder from serving pixels cached for an older transfer.
-      const coverFile = "internal://files/starry-cover-" + safeTransferId + ".png"
+      const coverFile = "internal://files/starry-cover-" + safeTransferId + (format === "jpg" ? ".jpg" : ".png")
       file.writeArrayBuffer({
         uri: coverFile,
-        buffer: bytes.buffer,
+        // Vela file.writeArrayBuffer requires Uint8Array, not ArrayBuffer.
+        buffer: bytes,
         append: false,
         success: () => {
           if (this.destroyed || !this.lastMediaState || this.lastMediaState.artworkId !== id) {
@@ -374,7 +377,7 @@ export default {
           }
           const previousCover = String((this.publishedArtwork || {}).uri || this.lastMediaState.albumArt || "")
           this.lastMediaState.albumArt = coverFile
-          this.publishedArtwork = { id: id, uri: coverFile, bytes: bytes.length, sum: expectedSum, format: "png" }
+          this.publishedArtwork = { id: id, uri: coverFile, bytes: bytes.length, sum: expectedSum, format: format }
           this.publishRealtimeState()
           this.persistMediaState(this.lastMediaState)
           setTimeout(() => {
@@ -382,7 +385,7 @@ export default {
               this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "publish_replaced" })
               return
             }
-            this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: true, bytes: bytes.length, sum: expectedSum, format: "png", verified: "png_structure_v1", uri: coverFile })
+            this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: true, bytes: bytes.length, sum: expectedSum, format: format, verified: format === "jpg" ? "jpeg_structure_v1" : "png_structure_v1", uri: coverFile })
             if (previousCover && previousCover !== coverFile) {
               setTimeout(() => {
                 if (!this.destroyed && (!this.lastMediaState || this.lastMediaState.albumArt !== previousCover)) file.delete({ uri: previousCover, success: () => {}, fail: () => {}, complete: () => {} })
@@ -393,13 +396,16 @@ export default {
         fail: (error, code) => { console.log("cover write failed code=" + String(code || "") + " " + JSON.stringify(error || {})); this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "write_" + String(code || "failed") }) },
         complete: () => {}
       })
-    } catch (error) { console.log("cover decode failed " + String(error)); this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "decode_failed" }) }
+    } catch (error) { console.log("cover processing failed " + String(error)); this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "processing_exception" }) }
   },
   adler32(bytes) {
     let a = 1
     let b = 0
     for (let i = 0; i < bytes.length; i++) { a = (a + bytes[i]) % 65521; b = (b + a) % 65521 }
     return b * 65536 + a
+  },
+  validateJpegStructure(bytes) {
+    return !!bytes && bytes.length >= 4 && bytes[0] === 255 && bytes[1] === 216 && bytes[bytes.length - 2] === 255 && bytes[bytes.length - 1] === 217
   },
   validatePngStructure(bytes) {
     if (!bytes || bytes.length < 45 || bytes[0] !== 137 || bytes[1] !== 80 || bytes[2] !== 78 || bytes[3] !== 71 || bytes[4] !== 13 || bytes[5] !== 10 || bytes[6] !== 26 || bytes[7] !== 10) return false
@@ -437,7 +443,7 @@ export default {
       }
       if (oldArtworkId) { for (const key in this.albumArtChunks) { if (key.indexOf(oldArtworkId + "|") === 0) delete this.albumArtChunks[key] } }
       if (oldLyricsId) delete this.lyricsGroups[oldLyricsId]
-      // Artwork files are retired only after a replacement PNG has been fully
+      // Artwork files are retired only after a replacement image has been fully
       // written, published and acknowledged. A track timer must not delete them.
       this.deleteStoredTrackIfMatching(MEDIA_STATE_KEY, "mediaKey", oldMediaKey)
       this.deleteStoredTrackIfMatching(LYRICS_KEY, "id", oldLyricsId)
@@ -539,7 +545,10 @@ export default {
       success: info => {
         if (this.destroyed) return
         const data = info || {}
-        this.deviceInfoPayload = { type: "device_info", session: this.sessionId, protocolVersion: 2, artworkFormat: "png", product: data.product || data.brand || data.manufacturer || "", model: data.model || "", screenWidth: data.screenWidth || data.width || 0, screenHeight: data.screenHeight || data.height || 0, screenShape: data.screenShape || "" }
+        const width = Number(data.screenWidth || data.width || 0)
+        const height = Number(data.screenHeight || data.height || 0)
+        const artworkFormat = "png"
+        this.deviceInfoPayload = { type: "device_info", session: this.sessionId, protocolVersion: 2, artworkFormat: artworkFormat, product: data.product || data.brand || data.manufacturer || "", model: data.model || "", screenWidth: width, screenHeight: height, screenShape: data.screenShape || "" }
         this.send(this.deviceInfoPayload)
       },
       fail: () => {
