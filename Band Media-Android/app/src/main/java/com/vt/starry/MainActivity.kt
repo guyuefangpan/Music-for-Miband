@@ -87,8 +87,10 @@ class MainActivity : ComponentActivity() {
                                 bridge::start, bridge::stop,
                                 { bridge.forceSyncArtwork(SystemMediaMonitor.currentState()); Unit },
                                 { bridge.forceSyncLyrics(SystemMediaMonitor.currentState()); Unit },
-                                { page = 4 })
+                                { page = 4 },
+                                { page = 5 })
                             4 -> DiagnosticsPage(this@MainActivity, wear, permission, logs, bridge, { page = 3 })
+                            5 -> OpenSourceLicensesPage { page = 3 }
                             else -> NowPlayingPage(media, permission)
                         }
                     }
@@ -221,7 +223,8 @@ private fun LogPage(logs: List<CommunicationLogEntry>) {
 
 @Composable
 private fun SettingsPage(wear: WearState, permission: Boolean, media: SystemMediaState, openPermission: () -> Unit,
-    reconnect: () -> Unit, disconnect: () -> Unit, syncArtwork: () -> Unit, syncLyrics: () -> Unit, openDiagnostics: () -> Unit) {
+    reconnect: () -> Unit, disconnect: () -> Unit, syncArtwork: () -> Unit, syncLyrics: () -> Unit,
+    openDiagnostics: () -> Unit, openLicenses: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("设置", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -261,10 +264,93 @@ private fun SettingsPage(wear: WearState, permission: Boolean, media: SystemMedi
                 Text("封面 ${if (media.albumArt.isBlank()) "无" else "有"} · 歌词 ${media.lyrics.size} 行", color = Muted, fontSize = 12.sp)
             }
         }
+        OutlinedButton(openLicenses, Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.Code, null)
+            Spacer(Modifier.width(8.dp))
+            Text("开源许可")
+        }
         Text("starry 1.0.0\n读取系统媒体并同步到小米手环。", color = Muted, fontSize = 12.sp,
             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
     }
 }
+
+private data class OpenSourceComponent(val name: String, val version: String, val copyright: String)
+
+private val openSourceComponents = listOf(
+    OpenSourceComponent("AndroidX / Jetpack", "Core 1.16.0、Activity 1.9.0、Lifecycle 2.9.4、Media 1.7.0", "Copyright The Android Open Source Project"),
+    OpenSourceComponent("Jetpack Compose", "UI 1.11.1、Material 3 1.4.0、Material Icons 1.7.8", "Copyright The Android Open Source Project"),
+    OpenSourceComponent("Kotlin Standard Library", "2.4.10", "Copyright JetBrains s.r.o. and Kotlin Programming Language contributors"),
+    OpenSourceComponent("Kotlin Coroutines", "1.11.0", "Copyright JetBrains s.r.o. and contributors")
+)
+
+@Composable
+private fun OpenSourceLicensesPage(back: () -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(back) { Icon(Icons.Default.ArrowBack, "返回", tint = Color.White) }
+            Text("开源许可", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        }
+        Text("starry 使用以下开源软件。除另有说明外，这些组件均依据 Apache License 2.0 提供。",
+            color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+        openSourceComponents.forEach { component ->
+            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(8.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(component.name, color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(component.version, color = StarryGreen, fontSize = 12.sp)
+                    Text(component.copyright, color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
+                    Text("Apache License 2.0", color = Muted, fontSize = 12.sp)
+                }
+            }
+        }
+        Text("Apache License\nVersion 2.0, January 2004\nhttp://www.apache.org/licenses/\n\n" + APACHE_LICENSE_2,
+            color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+    }
+}
+
+private const val APACHE_LICENSE_2 = """
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+\"License\" shall mean the terms and conditions for use, reproduction, and distribution as defined by Sections 1 through 9 of this document.
+
+\"Licensor\" shall mean the copyright owner or entity authorized by the copyright owner that is granting the License.
+
+\"Legal Entity\" shall mean the union of the acting entity and all other entities that control, are controlled by, or are under common control with that entity.
+
+\"You\" shall mean an individual or Legal Entity exercising permissions granted by this License.
+
+\"Source\" form shall mean the preferred form for making modifications, including but not limited to software source code, documentation source, and configuration files.
+
+\"Object\" form shall mean any form resulting from mechanical transformation or translation of a Source form.
+
+\"Work\" shall mean the work of authorship made available under the License.
+
+\"Derivative Works\" shall mean any work based on the Work for which the editorial revisions, annotations, elaborations, or other modifications represent an original work of authorship.
+
+\"Contribution\" shall mean any work of authorship intentionally submitted to Licensor for inclusion in the Work.
+
+\"Contributor\" shall mean Licensor and any individual or Legal Entity on behalf of whom a Contribution has been received and incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare Derivative Works of, publicly display, publicly perform, sublicense, and distribute the Work and such Derivative Works.
+
+3. Grant of Patent License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer the Work, where such license applies only to patent claims licensable by such Contributor that are necessarily infringed by their Contribution alone or by combination of their Contribution with the Work. If You institute patent litigation alleging that the Work or a Contribution incorporated within the Work constitutes direct or contributory patent infringement, then any patent licenses granted to You under this License for that Work shall terminate as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the Work or Derivative Works thereof in any medium, with or without modifications, provided that You meet the following conditions: You must give recipients a copy of this License; modified files must carry prominent notices; You must retain all copyright, patent, trademark, and attribution notices; and any NOTICE file must be included in a readable form.
+
+5. Submission of Contributions. Unless You explicitly state otherwise, any Contribution intentionally submitted for inclusion in the Work shall be under the terms of this License.
+
+6. Trademarks. This License does not grant permission to use the trade names, trademarks, service marks, or product names of the Licensor, except as required for reasonable use in describing the origin of the Work.
+
+7. Disclaimer of Warranty. Unless required by applicable law or agreed to in writing, Licensor provides the Work on an \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
+
+8. Limitation of Liability. In no event shall any Contributor be liable for damages arising as a result of this License or use of the Work, unless required by applicable law.
+
+9. Accepting Warranty or Additional Liability. You may offer support, warranty, indemnity, or other liability obligations only on Your own behalf and responsibility.
+
+END OF TERMS AND CONDITIONS
+"""
 
 @Composable
 private fun DiagnosticsPage(activity: MainActivity, wear: WearState, notificationAccess: Boolean, logs: List<CommunicationLogEntry>, bridge: WearBridge, back: () -> Unit) {
