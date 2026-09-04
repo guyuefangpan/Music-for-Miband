@@ -2,9 +2,9 @@
   <scroll class="{{isRing10 ? 'ring-landscape-viewport' : 'portrait-viewport'}}" scroll-x="false" scroll-y="false" onswipe="swipeBack">
   <div class="{{isRing10 ? (theme === 'day' ? 'ring-landscape-page ring-landscape-day' : 'ring-landscape-page') : (theme === 'day' ? 'landscape-page landscape-day' : 'landscape-page')}}">
     <image if="{{theme === 'cover' && connected && albumArt}}" class="{{isRing10 ? 'ring-landscape-background-base' : 'landscape-background-base'}}" src="{{albumArt}}"></image>
-    <image if="{{theme === 'cover' && connected && albumArt}}" class="{{isRing10 ? 'ring-landscape-background-blur' : 'landscape-background-blur'}}" src="{{albumArt}}" style="filter:blur({{coverBlurPx}}px)"></image>
+    <image if="{{theme === 'cover' && connected && albumArt}}" class="{{isRing10 ? 'ring-landscape-background-blur' : 'landscape-background-blur'}}" src="{{albumArt}}" style="{{coverBlurStyle}}"></image>
     <div if="{{theme === 'cover' && connected && albumArt}}" class="{{isRing10 ? 'ring-landscape-background-tint' : 'landscape-background-tint'}}" style="opacity:{{coverOverlayOpacity}}"></div>
-    <div class="{{isRing10 ? (theme === 'day' ? 'ring-landscape-cover-shell landscape-cover-shell-day' : 'ring-landscape-cover-shell') : (theme === 'day' ? 'landscape-cover-shell landscape-cover-shell-day' : 'landscape-cover-shell')}}" onclick="routeLyrics">
+    <div class="{{isRing10 ? (theme === 'day' ? (!albumArt ? 'ring-landscape-cover-shell landscape-cover-shell-day-empty' : 'ring-landscape-cover-shell landscape-cover-shell-day') : 'ring-landscape-cover-shell') : (theme === 'day' ? (!albumArt ? 'landscape-cover-shell landscape-cover-shell-day-empty' : 'landscape-cover-shell landscape-cover-shell-day') : 'landscape-cover-shell')}}" onclick="routeLyrics">
       <image if="{{albumArt}}" class="{{isRing10 ? 'ring-landscape-cover' : 'landscape-cover'}}" src="{{albumArt}}"></image>
       <image if="{{!albumArt}}" class="{{isRing10 ? 'ring-landscape-cover-empty' : 'landscape-cover-empty'}}" src="/common/no-album.png"></image>
     </div>
@@ -16,7 +16,7 @@
     <div class="{{isRing10 ? 'ring-landscape-controls' : 'landscape-controls'}}">
       <div class="landscape-control" onclick="routeSettings"><image class="landscape-settings" src="{{theme === 'day' ? '/common/setting-day.png' : '/common/setting.png'}}"></image></div>
       <div class="landscape-control" onclick="previous"><image class="landscape-previous-icon" src="{{theme === 'day' ? '/common/previous-day.png' : '/common/previous.png'}}"></image></div>
-      <div class="landscape-play" onclick="togglePlayback"><image if="{{!playing && theme !== 'day'}}" class="landscape-play-image" src="/common/play.png"></image><div if="{{!playing && theme === 'day'}}" class="landscape-play-day"><div class="landscape-play-day-triangle"></div></div><div if="{{playing && theme !== 'day'}}" class="landscape-pause-night-code"><div class="landscape-pause-bar-night-code"></div><div class="landscape-pause-bar-night-code"></div></div><div if="{{playing && theme === 'day'}}" class="landscape-pause-day-code"><div class="landscape-pause-bar-day-code"></div><div class="landscape-pause-bar-day-code"></div></div></div>
+      <div class="landscape-play" onclick="togglePlayback"><image if="{{!playing}}" class="landscape-play-image" src="{{theme === 'day' ? '/common/play-day.png' : '/common/play.png'}}"></image><image if="{{playing}}" class="landscape-play-image" src="{{theme === 'day' ? '/common/pause-day.png' : '/common/pause.png'}}"></image></div>
       <div class="landscape-control" onclick="next"><image class="landscape-next-icon" src="{{theme === 'day' ? '/common/next-day.png' : '/common/next.png'}}"></image></div>
       <div class="landscape-control" onclick="routeVolume"><image class="landscape-volume-icon" src="{{theme === 'day' ? '/common/volume-day.png' : '/common/volume.png'}}"></image></div>
     </div>
@@ -34,13 +34,13 @@ import { replacePage, backOnRightSwipe } from "../../common/navigation.js"
 import { readIsRing10 } from "../../common/device.js"
 
 export default {
-  private: { song: "等待同步", artist: "Android 同步器", albumArt: "", clock: "--:--", previousLyric: "", activeLyric: "等待 Android 同步器提供歌词", nextLyric: "", lyricFontSize: 20, mutedLyricFontSize: 17, elapsed: "00:00", remaining: "--:--", progressWidth: 0, progressKnobLeft: 0, hasProgress: false, playing: false, connected: false, connectionState: "检测中", debugMode: false, theme: "night", coverBlurPx: 24, coverOverlayOpacity: 0.2, isRing10: false },
+  private: { song: "等待同步", artist: "Android 同步器", albumArt: "", clock: "--:--", previousLyric: "", activeLyric: "等待 Android 同步器提供歌词", nextLyric: "", lyricFontSize: 20, mutedLyricFontSize: 17, elapsed: "00:00", remaining: "--:--", progressWidth: 0, progressKnobLeft: 0, hasProgress: false, playing: false, connected: false, connectionState: "检测中", debugMode: false, theme: "night", coverBlurPx: 12, coverBlurStyle: { filter: JSON.stringify({ blur: "12px" }) }, coverOverlayOpacity: 0.2, isRing10: false },
   onInit() { readIsRing10(value => { this.isRing10 = value }); this.refreshClock(); this.loadTheme(); this.loadLyricsSettings(); readDebugMode(enabled => { this.debugMode = enabled; this.load() }); this.timer = setInterval(() => { this.refreshClock(); this.load() }, 100) },
   onShow() { this.syncOrientation(); this.loadTheme(); this.loadLyricsSettings() },
   onRefresh() { this.syncOrientation(); this.loadTheme(); this.loadLyricsSettings() },
   onDestroy() { if (this.timer) clearInterval(this.timer) },
   refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
-  loadTheme() { readTheme(theme => { this.theme = theme }); readCoverBackground(value => { this.coverBlurPx = Math.round(value.blur * 24 / 100); this.coverOverlayOpacity = value.overlay / 100 }) },
+  loadTheme() { readTheme(theme => { this.theme = theme }); readCoverBackground(value => { this.coverBlurPx = Math.round(value.blur * 24 / 100); this.coverBlurStyle = { filter: JSON.stringify({ blur: this.coverBlurPx + "px" }) }; this.coverOverlayOpacity = value.overlay / 100 }) },
   syncOrientation() { readInterfaceOrientation(value => { if (value !== "landscape") router.push({ uri: "/pages/index", params: { ___PARAM_LAUNCH_FLAG___: "clearTask" } }) }) },
   loadLyricsSettings() { readLyricsFontSize(value => { this.lyricFontSize = value; this.mutedLyricFontSize = Math.max(12, value - 3) }) },
   load() { if (this.debugMode) { this.applyDebug(); return } const realtime = this.$app.$def.getRealtimeMediaState(); if (realtime && realtime.state) { this.applyMedia(normalizeMediaState(realtime.state, realtime.connected)); return } readMediaState(media => this.applyMedia(media), () => { this.connected = false; this.connectionState = "未连接" }) },
@@ -69,10 +69,43 @@ text,input{font-family:MiSans,sans-serif}.landscape-page{width:480px;height:336p
 .landscape-play-day{position:relative;width:62px;height:62px;border-radius:31px;border-width:2px;border-style:solid;border-color:#555;align-items:center;justify-content:center}.landscape-play-day-triangle{width:0;height:0;margin-left:5px;border-top-width:12px;border-bottom-width:12px;border-left-width:19px;border-top-color:transparent;border-bottom-color:transparent;border-left-color:#555;border-style:solid}.landscape-pause-night-code,.landscape-pause-day-code{width:62px;height:62px;border-radius:31px;border-width:2px;border-style:solid;align-items:center;justify-content:center}.landscape-pause-night-code{border-color:#fff}.landscape-pause-day-code{border-color:#555}.landscape-pause-bar-night-code,.landscape-pause-bar-day-code{width:7px;height:27px;margin-left:4px;margin-right:4px;border-radius:3px}.landscape-pause-bar-night-code{background-color:#fff}.landscape-pause-bar-day-code{background-color:#555}
 </style>
 <style>
+.ring-landscape-song-day{color:#000}
+.ring-landscape-artist{color:#fff;font-size:14px;font-weight:500}
+.ring-landscape-artist-day{color:#000;font-size:14px;font-weight:500}
+.ring-landscape-disconnected{color:#fff;font-weight:500}
+.ring-landscape-disconnected-day{color:#000;font-weight:500}
+</style>
+<style>
 .ring-landscape-viewport{width:212px;height:520px;position:relative;background-color:#000;overflow:hidden}.ring-landscape-page{position:absolute;left:212px;top:0;width:520px;height:212px;transform:rotate(90deg);transform-origin:left top;background-color:#242424;border-radius:106px;overflow:hidden}.ring-landscape-day{background-color:#fff}.ring-landscape-background-base{position:absolute;left:0;top:0;width:520px;height:212px}.ring-landscape-background-blur{position:absolute;left:-78px;top:-32px;width:676px;height:276px}.ring-landscape-background-tint{position:absolute;left:0;top:0;width:520px;height:212px;background-color:#000}.ring-landscape-cover-shell{position:absolute;left:48px;top:18px;width:77px;height:77px;border-radius:39px;border-width:3px;border-color:#777;background-color:#303030;overflow:hidden;align-items:center;justify-content:center}.ring-landscape-cover{width:69px;height:69px;border-radius:35px}.ring-landscape-cover-empty{width:69px;height:69px;border-radius:35px;background-color:#266a9c;align-items:center;justify-content:center}.ring-landscape-metadata{position:absolute;left:125px;top:18px;width:250px;height:48px;flex-direction:column}.ring-landscape-song,.ring-landscape-song-day{width:250px;font-size:22px;font-weight:500;line-height:27px;lines:1;text-overflow:ellipsis}.ring-landscape-song{color:#fff}.ring-landscape-song-day{color:#444}.ring-landscape-artist,.ring-landscape-artist-day{width:250px;margin-top:2px;font-size:13px;line-height:17px;lines:1;text-overflow:ellipsis}.ring-landscape-artist{color:#999}.ring-landscape-artist-day{color:#999}.ring-landscape-clock,.ring-landscape-clock-day{position:absolute;right:54px;top:17px;width:58px;font-size:20px;text-align:right;line-height:24px}.ring-landscape-clock{color:#eee}.ring-landscape-clock-day{color:#555}.ring-landscape-lyrics{position:absolute;left:111px;top:72px;width:300px;height:48px}.ring-landscape-active,.ring-landscape-active-day{position:absolute;left:0;top:0;width:300px;text-align:center;font-size:20px;line-height:25px;lines:2}.ring-landscape-active{color:#fff}.ring-landscape-active-day{color:#444}.ring-landscape-progress-row{position:absolute;left:54px;top:121px;width:412px;height:26px;align-items:center}.ring-landscape-controls{position:absolute;left:54px;top:147px;width:412px;height:62px;align-items:center;justify-content:space-between}.ring-landscape-back-mark{width:32px;color:#aaa;font-size:58px;line-height:54px;text-align:center}
 </style>
 <style>
 .ring-landscape-viewport{position:absolute;left:0;top:0;width:212px;height:520px;min-width:212px;min-height:520px;flex-shrink:0;overflow:hidden}
 .ring-landscape-controls{left:102px;width:316px}
 .ring-landscape-disconnected,.ring-landscape-disconnected-day{position:absolute;right:54px;top:43px;width:90px;font-size:15px;line-height:20px;text-align:right;lines:1}.ring-landscape-disconnected{color:#aaa}.ring-landscape-disconnected-day{color:#777}
+.landscape-pause-night-code,.landscape-pause-day-code{position:relative;align-items:flex-start;justify-content:flex-start}
+.landscape-pause-bar-night-left,.landscape-pause-bar-night-right,.landscape-pause-bar-day-left,.landscape-pause-bar-day-right{position:absolute;top:16px;width:7px;height:27px;border-radius:3px}
+.landscape-pause-bar-night-left,.landscape-pause-bar-day-left{left:19px}
+.landscape-pause-bar-night-right,.landscape-pause-bar-day-right{left:34px}
+.landscape-pause-bar-night-left,.landscape-pause-bar-night-right{background-color:#fff}
+.landscape-pause-bar-day-left,.landscape-pause-bar-day-right{background-color:#555}
+.landscape-cover-shell-day-empty{border-color:transparent;background-color:transparent}
+.ring-landscape-artist,.ring-landscape-artist-day{margin-left:5px;width:245px}
+.ring-landscape-background-base,.ring-landscape-background-blur,.ring-landscape-background-tint{z-index:0}
+.ring-landscape-cover-shell,.ring-landscape-metadata,.ring-landscape-clock,.ring-landscape-clock-day,.ring-landscape-lyrics,.ring-landscape-disconnected,.ring-landscape-disconnected-day,.ring-landscape-progress-row,.ring-landscape-controls{z-index:2}
+.ring-landscape-page{left:0;top:0;width:212px;height:520px;transform:none}
+.ring-landscape-background-base{left:212px;top:0;transform:rotate(90deg);transform-origin:left top}
+.ring-landscape-background-blur{left:244px;top:-78px;transform:rotate(90deg);transform-origin:left top}
+.ring-landscape-background-tint{left:212px;top:0;transform:rotate(90deg);transform-origin:left top}
+.ring-landscape-cover-shell{left:194px;top:48px;transform:rotate(90deg);transform-origin:left top}
+.ring-landscape-metadata{left:194px;top:125px;transform:rotate(90deg);transform-origin:left top}
+.ring-landscape-clock,.ring-landscape-clock-day{left:195px;right:auto;top:408px;transform:rotate(90deg);transform-origin:left top}
+.ring-landscape-lyrics{left:140px;top:111px;transform:rotate(90deg);transform-origin:left top}
+.ring-landscape-disconnected,.ring-landscape-disconnected-day{left:169px;right:auto;top:376px;transform:rotate(90deg);transform-origin:left top}
+.ring-landscape-progress-row{left:91px;top:54px;transform:rotate(90deg);transform-origin:left top}
+.ring-landscape-controls{left:65px;top:102px;width:316px;transform:rotate(90deg);transform-origin:left top}
+.ring-landscape-song-day{color:#000}
+.ring-landscape-artist{color:#fff;font-size:14px;font-weight:500}
+.ring-landscape-artist-day{color:#000;font-size:14px;font-weight:500}
+.ring-landscape-disconnected{color:#fff;font-weight:500}
+.ring-landscape-disconnected-day{color:#000;font-weight:500}
 </style>

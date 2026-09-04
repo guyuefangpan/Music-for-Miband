@@ -76,6 +76,9 @@
       },
       "pages/about": {
         "component": "about"
+      },
+      "pages/blurprobe": {
+        "component": "blurprobe"
       }
     }
   }

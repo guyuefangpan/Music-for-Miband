@@ -1,0 +1,27 @@
+<template>
+  <div class="page">
+    <image class="panel" src="/common/blurtest.png"></image>
+    <div class="panel b24"><image class="fillimg" src="/common/blurtest.png"></image></div>
+    <div class="panel b24 bg"></div>
+    <image class="panel b24" src="/common/blurtest.png"></image>
+    <div class="panel b100"><image class="fillimg" src="/common/blurtest.png"></image></div>
+    <div class="panel b100 bg"></div>
+    <image class="panel" src="/common/blurtest.png" style="{{blurJson24}}"></image>
+    <div class="panel bg" style="{{blurJson24}}"></div>
+  </div>
+</template>
+
+<style>
+  .page { flex-direction: column; width: 100%; height: 100%; background-color: #000; }
+  .panel { width: 336px; height: 60px; object-fit: fill; overflow: hidden; }
+  .fillimg { width: 336px; height: 60px; }
+  .b24 { filter: blur(24px); }
+  .b100 { filter: blur(100px); }
+  .bg { background-image: url('/common/blurtest.png'); background-size: 100% 100%; }
+</style>
+
+<script>
+  export default {
+    private: { blurJson24: { filter: JSON.stringify({ blur: "24px" }) } }
+  }
+</script>

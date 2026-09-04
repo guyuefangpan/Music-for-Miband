@@ -1,7 +1,7 @@
 <template>
-  <div class="{{theme === 'day' ? 'watch-page-day' : 'watch-page-night'}}" onswipe="swipeBack">
+  <div class="{{isRing10 ? (theme === 'day' ? 'watch-page-day ring-watch-page' : 'watch-page-night ring-watch-page') : (theme === 'day' ? 'watch-page-day' : 'watch-page-night')}}" onswipe="swipeBack">
     <image if="{{theme === 'cover' && albumArt && !isRing10}}" class="lyrics-background-base" src="{{albumArt}}"></image>
-    <image if="{{theme === 'cover' && albumArt && !isRing10}}" class="lyrics-background-blur" src="{{albumArt}}" style="filter:blur({{coverBlurPx}}px)"></image>
+    <image if="{{theme === 'cover' && albumArt && !isRing10}}" class="lyrics-background-blur" src="{{albumArt}}" style="{{coverBlurStyle}}"></image>
     <div if="{{theme === 'cover' && albumArt && !isRing10}}" class="lyrics-background-tint" style="opacity:{{coverOverlayOpacity}}"></div>
     <div if="{{!isRing10}}" class="standard-lyrics">
       <div class="top" onclick="routePlayer"><text class="{{theme === 'day' ? 'song-day' : 'song-night'}}">{{song}}</text><text class="{{theme === 'day' ? 'artist-day' : 'artist-night'}}">{{artist}}</text></div>
@@ -27,18 +27,18 @@
     </div>
     <div if="{{isRing10}}" class="{{theme === 'day' ? 'ring-lyrics-page ring-lyrics-day' : (theme === 'cover' ? 'ring-lyrics-page ring-lyrics-cover' : 'ring-lyrics-page ring-lyrics-night')}}">
       <image if="{{theme === 'cover' && albumArt}}" class="ring-lyrics-background-base" src="{{albumArt}}"></image>
-      <image if="{{theme === 'cover' && albumArt}}" class="ring-lyrics-background-blur" src="{{albumArt}}" style="filter:blur({{coverBlurPx}}px)"></image>
+      <image if="{{theme === 'cover' && albumArt}}" class="ring-lyrics-background-blur" src="{{albumArt}}" style="{{coverBlurStyle}}"></image>
       <div if="{{theme === 'cover' && albumArt}}" class="ring-lyrics-background-tint" style="opacity:{{coverOverlayOpacity}}"></div>
       <div class="ring-lyrics-safe-area" onclick="routePlayer">
         <text class="{{theme === 'day' ? 'ring-clock ring-text-day' : 'ring-clock'}}">{{clock}}</text>
-        <div class="ring-song-meta"><text class="{{theme === 'day' ? 'ring-song ring-text-day' : 'ring-song'}}">{{song}}</text><text class="{{theme === 'day' ? 'ring-artist ring-muted-day' : 'ring-artist'}}">{{artist}}</text></div>
+        <div class="ring-song-meta"><text class="{{theme === 'day' ? 'ring-song ring-detail-song-day' : 'ring-song'}}">{{song}}</text><text class="{{theme === 'day' ? 'ring-artist ring-muted-day' : 'ring-artist'}}">{{artist}}</text></div>
       </div>
       <div if="{{hasLyrics}}" class="ring-lyrics-scroll">
         <div class="ring-lyrics-list" style="top:{{ringLyricsListTop}}px"><text for="{{ringDisplayLyrics}}" class="{{$item.className}}" style="height:{{lyricRowHeight}}px;min-height:{{lyricRowHeight}}px;font-size:{{$item.fontSize}}px;line-height:{{lyricLineHeight}}px">{{$item.text}}</text></div>
       </div>
       <text if="{{!hasLyrics}}" class="ring-empty">等待 Android 同步器提供歌词</text>
-      <div class="ring-detail-progress-row"><text class="{{theme === 'day' ? 'ring-detail-time ring-text-day' : 'ring-detail-time'}}">{{elapsed}}</text><div class="ring-detail-slider"><div class="{{theme === 'day' ? 'ring-detail-track ring-detail-track-day' : 'ring-detail-track'}}"><div if="{{hasProgress}}" class="ring-detail-fill" style="width:{{ringProgressWidth}}px"></div></div><div if="{{hasProgress}}" class="ring-detail-knob" style="left:{{ringProgressKnobLeft}}px"></div></div><text class="{{theme === 'day' ? 'ring-detail-time ring-detail-remaining ring-text-day' : 'ring-detail-time ring-detail-remaining'}}">{{remaining}}</text></div>
-      <div class="ring-detail-controls"><div class="ring-detail-control" onclick="previous"><image class="ring-detail-previous" src="{{theme === 'day' ? '/common/previous-day.png' : '/common/previous.png'}}"></image></div><div class="ring-detail-play" onclick="togglePlayback"><image if="{{!playing && theme !== 'day'}}" class="ring-detail-play-image" src="/common/play.png"></image><div if="{{!playing && theme === 'day'}}" class="ring-detail-play-day"><div class="ring-detail-play-day-triangle"></div></div><div if="{{playing}}" class="ring-detail-pause"><div class="ring-detail-pause-bar"></div><div class="ring-detail-pause-bar"></div></div></div><div class="ring-detail-control" onclick="next"><image class="ring-detail-next" src="{{theme === 'day' ? '/common/next-day.png' : '/common/next.png'}}"></image></div></div>
+      <div class="ring-detail-progress-row"><text class="{{theme === 'day' ? 'ring-detail-time ring-text-day' : 'ring-detail-time'}}">{{elapsed}}</text><div class="ring-detail-slider"><div class="{{theme === 'day' ? 'ring-detail-track ring-detail-track-day' : 'ring-detail-track'}}"><div if="{{hasProgress}}" class="{{theme === 'day' ? 'ring-detail-fill ring-detail-fill-day' : 'ring-detail-fill'}}" style="width:{{ringProgressWidth}}px"></div></div><div if="{{hasProgress}}" class="{{theme === 'day' ? 'ring-detail-knob ring-detail-knob-day' : 'ring-detail-knob'}}" style="left:{{ringProgressKnobLeft}}px"></div></div><text class="{{theme === 'day' ? 'ring-detail-time ring-detail-remaining ring-text-day' : 'ring-detail-time ring-detail-remaining'}}">{{remaining}}</text></div>
+      <div class="ring-detail-controls"><div class="ring-detail-control" onclick="previous"><image class="ring-detail-previous" src="{{theme === 'day' ? '/common/previous-day.png' : '/common/previous.png'}}"></image></div><div class="ring-detail-play" onclick="togglePlayback"><image class="ring-detail-play-image" src="{{playing ? (theme === 'day' ? '/common/pause-day.png' : '/common/pause.png') : (theme === 'day' ? '/common/play-day.png' : '/common/play.png')}}"></image></div><div class="ring-detail-control" onclick="next"><image class="ring-detail-next" src="{{theme === 'day' ? '/common/next-day.png' : '/common/next.png'}}"></image></div></div>
       <div class="ring-detail-secondary"><div class="ring-detail-control" onclick="routeSettings"><image class="ring-detail-settings" src="{{theme === 'day' ? '/common/setting-day.png' : '/common/setting.png'}}"></image></div><div class="ring-detail-control" onclick="routeVolume"><image class="ring-detail-volume" src="{{theme === 'day' ? '/common/volume-day.png' : '/common/volume.png'}}"></image></div></div>
     </div>
   </div>
@@ -55,12 +55,12 @@ const DEBUG_ACTIVE = ["もし世界中の人が夢を諦めたら", "誰の心�
 const DEBUG_NEXT = ["再生", "地球最後の日のミュージック"]
 export default {
   protected: { theme: "night" },
-  private: { song: "等待同步", artist: "Android 同步器", albumArt: "", clock: "--:--", isRing10: false, debugMode: false, displayLyrics: [], ringDisplayLyrics: [], activeIndex: -1, lyricsListTop: 106, ringLyricsListTop: 122, lyricFontSize: 20, mutedLyricFontSize: 17, lyricRowHeight: 46, lyricLineHeight: 23, hasLyrics: false, elapsed: "00:00", remaining: "--:--", progressWidth: 0, progressKnobLeft: 0, ringProgressWidth: 0, ringProgressKnobLeft: 0, hasProgress: false, playing: false, coverBlurPx: 24, coverOverlayOpacity: 0.2 },
+  private: { song: "等待同步", artist: "Android 同步器", albumArt: "", clock: "--:--", isRing10: false, debugMode: false, displayLyrics: [], ringDisplayLyrics: [], activeIndex: -1, lyricsListTop: 106, ringLyricsListTop: 122, lyricFontSize: 20, mutedLyricFontSize: 17, lyricRowHeight: 46, lyricLineHeight: 23, hasLyrics: false, elapsed: "00:00", remaining: "--:--", progressWidth: 0, progressKnobLeft: 0, ringProgressWidth: 0, ringProgressKnobLeft: 0, hasProgress: false, playing: false, coverBlurPx: 50, coverBlurStyle: { filter: JSON.stringify({ blur: "50px" }) }, coverOverlayOpacity: 0.2 },
   onInit() { this.detectDevice(); this.refreshClock(); this.loadTheme(); this.loadLyricsSettings(); readDebugMode(enabled => { this.debugMode = enabled; this.refreshData() }); this.timer = setInterval(() => { this.refreshClock(); this.refreshData() }, 50) },
   onShow() { this.loadTheme(); this.loadLyricsSettings() },
   onDestroy() { if (this.timer) clearInterval(this.timer) },
   refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
-  loadTheme() { readTheme(theme => { this.theme = theme }); readCoverBackground(value => { this.coverBlurPx = Math.round(value.blur * 24 / 100); this.coverOverlayOpacity = value.overlay / 100 }) },
+  loadTheme() { readTheme(theme => { this.theme = theme }); readCoverBackground(value => { this.coverBlurPx = value.blur; this.coverBlurStyle = { filter: JSON.stringify({ blur: this.coverBlurPx + "px" }) }; this.coverOverlayOpacity = value.overlay / 100 }) },
   loadLyricsSettings() { readLyricsFontSize(value => { if (value === this.lyricFontSize) return; this.lyricFontSize = value; this.mutedLyricFontSize = Math.max(12, value - 3); this.lyricLineHeight = Math.max(20, value + 3); this.lyricRowHeight = Math.max(42, this.lyricLineHeight * 2); this.lastLyricsSignature = ""; this.activeIndex = -1; this.refreshData() }) },
   refreshData() { if (this.debugMode) this.applyDebugData(); else this.loadSyncData() },
   detectDevice() { readIsRing10(value => { this.isRing10 = value }) },
@@ -106,8 +106,21 @@ text,input{font-family:MiSans,sans-serif}.watch-page-night,.watch-page-day{width
 .ring-row-muted,.ring-row-active{height:46px;min-height:46px;line-height:23px;lines:2;text-overflow:ellipsis}
 </style>
 <style>
+.ring-song-day{color:#000}
+</style>
+<style>
+.ring-detail-fill-day{background-color:#70b6e8}
+.ring-detail-knob-day{border-color:#555;background-color:#70b6e8}
+</style>
+<style>
+.ring-watch-page{width:212px;height:520px;min-width:212px;min-height:520px;flex-shrink:0}
+</style>
+<style>
 .ring-lyrics-day{background-color:#fff}.ring-lyrics-night{background-color:#242424}.ring-lyrics-cover{background-color:#6f96b7}.ring-lyrics-background-base{position:absolute;left:0;top:0;width:212px;height:520px}.ring-lyrics-background-blur{position:absolute;left:-50px;top:-80px;width:312px;height:680px}.ring-lyrics-background-tint{position:absolute;left:0;top:0;width:212px;height:520px;background-color:#000}.ring-text-day{color:#555}.ring-muted-day{color:#999}.ring-row-muted-day,.ring-row-active-day{width:196px;height:46px;min-height:46px;padding-left:8px;padding-right:8px;text-align:center;line-height:23px;lines:2;text-overflow:ellipsis}.ring-row-muted-day{color:#ccc}.ring-row-active-day{color:#555;font-weight:500}.ring-detail-progress-row{position:absolute;left:2px;top:352px;width:208px;height:25px;align-items:center}.ring-detail-time{width:41px;color:#fff;font-size:14px;line-height:20px;lines:1}.ring-detail-remaining{text-align:right}.ring-detail-slider{position:relative;width:124px;height:15px;margin-left:1px;margin-right:1px}.ring-detail-track{position:absolute;left:0;top:5px;width:124px;height:5px;border-radius:3px;background-color:#586d7c}.ring-detail-track-day{background-color:#d8e5ee}.ring-detail-fill{height:5px;border-radius:3px;background-color:#70b6e8}.ring-detail-knob{position:absolute;top:0;width:15px;height:15px;border-radius:8px;border-width:2px;border-color:#fff;background-color:#70b6e8}.ring-detail-controls{position:absolute;left:7px;top:389px;width:198px;height:62px;align-items:center;justify-content:space-between}.ring-detail-control{width:46px;height:50px;align-items:center;justify-content:center}.ring-detail-previous{width:20px;height:24px}.ring-detail-next{width:20px;height:22px}.ring-detail-play,.ring-detail-play-image,.ring-detail-pause{width:62px;height:62px}.ring-detail-play{align-items:center;justify-content:center}.ring-detail-pause{border-radius:31px;border-width:2px;border-color:#fff;align-items:center;justify-content:center}.ring-detail-pause-bar{width:7px;height:27px;margin-left:4px;margin-right:4px;border-radius:3px;background-color:#fff}.ring-detail-play-day{width:62px;height:62px;border-radius:31px;border-width:2px;border-color:#555;align-items:center;justify-content:center}.ring-detail-play-day-triangle{width:0;height:0;margin-left:5px;border-top-width:12px;border-bottom-width:12px;border-left-width:19px;border-top-color:transparent;border-bottom-color:transparent;border-left-color:#555;border-style:solid}.ring-detail-secondary{position:absolute;left:55px;top:465px;width:102px;height:36px;align-items:center;justify-content:space-between}.ring-detail-settings{width:23px;height:23px}.ring-detail-volume{width:20px;height:20px}.ring-lyrics-scroll{height:250px}
 </style>
 <style>
 .time-night,.time-day{font-size:20px}.ring-lyrics-safe-area{position:absolute;left:0;top:0;width:212px;height:92px}.ring-clock{position:absolute;left:77px;top:8px;width:58px;color:#eee;font-size:20px;line-height:24px;text-align:center}.ring-song-meta{position:absolute;left:46px;top:36px;width:120px;height:46px;flex-direction:column;align-items:center}.ring-song{width:120px;color:#fff;font-size:21px;line-height:25px;text-align:center;lines:1;text-overflow:ellipsis}.ring-artist{width:120px;color:#aaa;font-size:13px;line-height:18px;text-align:center;lines:1;text-overflow:ellipsis}.ring-lyrics-scroll{top:92px;height:360px}.ring-title{position:absolute;left:56px;top:31px;width:100px;height:54px;color:transparent;font-size:30px;text-align:center}
+.ring-lyrics-safe-area,.ring-lyrics-scroll,.ring-empty,.ring-detail-progress-row,.ring-detail-controls,.ring-detail-secondary{z-index:2}
+.ring-detail-controls,.ring-detail-secondary{visibility:visible;opacity:1}
+.ring-detail-song-day{color:#000}
 </style>

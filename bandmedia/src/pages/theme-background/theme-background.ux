@@ -16,7 +16,7 @@
           <div class="plus blur-plus" onclick="increaseBlur"><div class="plus-horizontal"></div><div class="plus-vertical"></div></div>
           <div class="{{isRing10 ? 'ring-background-preview' : 'preview'}}">
             <image class="{{isRing10 ? 'ring-preview-base' : 'preview-base'}}" src="/common/debugmusic-icon.png"></image>
-            <image class="{{isRing10 ? 'ring-preview-blur' : 'preview-blur'}}" src="/common/debugmusic-icon.png" style="filter:blur({{blurPx}}px)"></image>
+            <image class="{{isRing10 ? 'ring-preview-blur' : 'preview-blur'}}" src="/common/debugmusic-icon.png" style="{{blurStyle}}"></image>
             <div class="{{isRing10 ? 'ring-preview-overlay' : 'preview-overlay'}}" style="opacity:{{overlayOpacity}};background-color:#000"></div>
             <text class="{{isRing10 ? 'ring-preview-text' : 'preview-text'}}">永远相信美好的事情\n即将发生</text>
           </div>
@@ -31,19 +31,19 @@ import { readCoverBackground, writeCoverOverlay, writeCoverBlur } from "../../co
 import { backPage, backOnRightSwipe } from "../../common/navigation.js"
 import { readIsRing10 } from "../../common/device.js"
 export default {
-  private: { clock: "--:--", overlay: 20, blur: 100, overlayOpacity: 0.2, blurPx: 24, isRing10: false },
+  private: { clock: "--:--", overlay: 20, blur: 50, overlayOpacity: 0.2, blurPx: 50, blurStyle: { filter: JSON.stringify({ blur: "50px" }) }, isRing10: false },
   onInit() { this.refreshClock(); readIsRing10(value => { this.isRing10 = value }); this.load(); this.timer = setInterval(() => this.refreshClock(), 1000) },
   onShow() { this.load() },
   onDestroy() { if (this.timer) clearInterval(this.timer) },
   refreshClock() { const d = new Date(); this.clock = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) },
   load() { readCoverBackground(value => { this.overlay = value.overlay; this.blur = value.blur; this.updatePreview() }) },
-  updatePreview() { this.overlayOpacity = this.overlay / 100; this.blurPx = Math.round(this.blur * 24 / 100) },
+  updatePreview() { this.overlayOpacity = this.overlay / 100; this.blurPx = this.blur; this.blurStyle = { filter: JSON.stringify({ blur: this.blurPx + "px" }) } },
   setOverlay(value) { this.overlay = Math.max(0, Math.min(100, value)); this.updatePreview(); writeCoverOverlay(this.overlay) },
-  setBlur(value) { this.blur = Math.max(0, Math.min(200, value)); this.updatePreview(); writeCoverBlur(this.blur) },
+  setBlur(value) { this.blur = Math.max(0, Math.min(500, value)); this.updatePreview(); writeCoverBlur(this.blur) },
   decreaseOverlay() { this.setOverlay(this.overlay - 5) },
   increaseOverlay() { this.setOverlay(this.overlay + 5) },
-  decreaseBlur() { this.setBlur(this.blur - 10) },
-  increaseBlur() { this.setBlur(this.blur + 10) },
+  decreaseBlur() { this.setBlur(this.blur - 20) },
+  increaseBlur() { this.setBlur(this.blur + 20) },
   back() { backPage() },
   swipeBack(event) { backOnRightSwipe(event) }
 }

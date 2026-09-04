@@ -26,11 +26,11 @@ function readNumber(key, fallback, min, max, success) {
 }
 
 export function readCoverBackground(success) {
-  const result = { overlay: 20, blur: 100 }
+  const result = { overlay: 20, blur: 50 }
   let completed = 0
   const finish = () => { if (++completed === 2) success(result) }
   readNumber(COVER_OVERLAY_KEY, 20, 0, 100, value => { result.overlay = value; finish() })
-  readNumber(COVER_BLUR_KEY, 100, 0, 200, value => { result.blur = value; finish() })
+  readNumber(COVER_BLUR_KEY, 50, 0, 500, value => { result.blur = value; finish() })
 }
 
 export function writeCoverOverlay(value, success) {
@@ -38,5 +38,5 @@ export function writeCoverOverlay(value, success) {
 }
 
 export function writeCoverBlur(value, success) {
-  storage.set({ key: COVER_BLUR_KEY, value: String(Math.max(0, Math.min(200, value))), success: () => { if (success) success() }, fail: () => {}, complete: () => {} })
+  storage.set({ key: COVER_BLUR_KEY, value: String(Math.max(0, Math.min(500, value))), success: () => { if (success) success() }, fail: () => {}, complete: () => {} })
 }
