@@ -4,3 +4,4 @@
 /sign
 /build
 .husky/
+.DS_Store

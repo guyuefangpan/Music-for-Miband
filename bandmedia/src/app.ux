@@ -44,13 +44,11 @@ export default {
     this.publishedArtwork = { id: "", uri: "", bytes: 0, sum: 0, format: "" }
     this.lyricsGroups = {}
     this.trackCleanupTimers = []
-    // Register interconnect immediately. Some older Vela devices do not invoke
-    // every file.delete completion callback for a missing file; gating the
-    // transport behind cache cleanup leaves Android endlessly launching an app
-    // that never installs onmessage. Media caches are replaced transactionally
-    // by the normal sync protocol and do not need to block startup.
-    this.startupCleanupDone = true
+    // Register interconnect immediately. Cache cleanup is asynchronous and must
+    // not delay Android's launch/handshake on older Vela devices.
+    this.startupCleanupDone = false
     this.startCommunication()
+    this.cleanupStartupCaches(() => { this.startupCleanupDone = true })
     brightness.setKeepScreenOn({ keepScreenOn: true, success: () => {}, fail: () => {}, complete: () => {} })
     console.log("app created")
   },
@@ -61,9 +59,13 @@ export default {
     this.lastMediaState = null
     this.pendingMediaState = null
     this.lastStoredMediaKey = ""
+    this.publishedArtwork = { id: "", uri: "", bytes: 0, sum: 0, format: "" }
+    for (let i = 0; i < this.trackCleanupTimers.length; i++) clearTimeout(this.trackCleanupTimers[i])
+    this.trackCleanupTimers = []
     const tasks = [
       complete => storage.delete({ key: MEDIA_STATE_KEY, success: () => {}, fail: () => {}, complete: complete }),
       complete => storage.delete({ key: LYRICS_KEY, success: () => {}, fail: () => {}, complete: complete }),
+      complete => storage.delete({ key: CONNECTION_KEY, success: () => {}, fail: () => {}, complete: complete }),
       complete => file.delete({ uri: COVER_FILE_A, success: () => {}, fail: () => {}, complete: complete }),
       complete => file.delete({ uri: COVER_FILE_B, success: () => {}, fail: () => {}, complete: complete }),
       complete => file.delete({ uri: LEGACY_COVER_FILE_A, success: () => {}, fail: () => {}, complete: complete }),
