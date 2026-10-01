@@ -15,24 +15,38 @@ class MediaSyncService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastSemantic = ""
     private var lastPlaybackState = ""
+    private var lastMediaKey = ""
+    private var lastActiveLyricIndex = -2
+
+    // 网易云已推送选中时以播放器状态为准，避免系统媒体状态覆盖刚推送的歌词/封面。
+    private fun activeMedia(): SystemMediaState =
+        if (NetEasePlayer.hasSelection()) NetEasePlayer.state.value else SystemMediaMonitor.currentState()
 
     private val ticker = object : Runnable {
         override fun run() {
-            val media = SystemMediaMonitor.currentState()
+            val media = activeMedia()
+            val mediaKey = listOf(media.packageName, media.title, media.artist, media.album).joinToString("|")
             val semantic = listOf(
                 media.packageName, media.title, media.artist, media.album, media.playbackState,
                 media.durationMs, media.volume, media.muted, media.albumArt.hashCode(), media.lyrics.hashCode()
             ).joinToString("|")
             val playbackStateChanged = media.playbackState != lastPlaybackState
+            // 切歌（自动或手动，含搜索页手动推送）：先让手环清空上一首歌词与封面缓存，
+            // 再下发新歌，避免旧歌词/封面残留造成"手环还停在上一句"的观感。
+            val songSwitched = lastMediaKey.isNotBlank() && mediaKey != lastMediaKey && media.title.isNotBlank()
+            if (songSwitched) bridge.sendClearCache("switch")
             if (semantic != lastSemantic) {
                 CommunicationLog.info("MEDIA", if (media.title.isBlank()) "播放信息已清空" else "${media.sourceName}: ${media.title}")
                 lastSemantic = semantic
                 bridge.sendMusicState(media)
             }
             lastPlaybackState = media.playbackState
-            // Keep confirming paused/buffering/stopped as well as playing. A state
-            // transition is urgent so lyrics or artwork cannot leave stale controls.
-            if (media.title.isNotBlank()) bridge.sendProgressState(media, playbackStateChanged)
+            lastMediaKey = mediaKey
+            // 歌词行切换时立即 urgent 抢发进度，让手环当前行紧跟手机，避免落后一句；
+            // 平时仍以 100ms 节奏发位置。playbackState 变化同样抢发，避免控制状态滞后。
+            val lyricIndexChanged = media.activeLyricIndex != lastActiveLyricIndex
+            if (media.title.isNotBlank()) bridge.sendProgressState(media, playbackStateChanged || lyricIndexChanged)
+            lastActiveLyricIndex = media.activeLyricIndex
             handler.postDelayed(this, 100L)
         }
     }
@@ -41,19 +55,20 @@ class MediaSyncService : Service() {
         super.onCreate()
         bridge = WearBridge.get(this)
         SystemMediaMonitor.start(this)
-        bridge.onConnected = { bridge.sendMusicState(SystemMediaMonitor.currentState()) }
-        bridge.onMusicRequest = { bridge.sendMusicState(SystemMediaMonitor.currentState()) }
+        NetEasePlayer.init(this)
+        bridge.onConnected = { bridge.sendMusicState(activeMedia()) }
+        bridge.onMusicRequest = { bridge.sendMusicState(activeMedia()) }
         bridge.onControl = { action, value ->
-            when (action.lowercase()) {
-                "play" -> SystemMediaMonitor.play()
-                "pause" -> SystemMediaMonitor.pause()
-                "next" -> SystemMediaMonitor.next()
-                "prev", "previous" -> SystemMediaMonitor.previous()
-                "seek" -> value?.let(SystemMediaMonitor::seek)
-                "setvolume" -> value?.toInt()?.let(SystemMediaMonitor::setVolume)
-                "volume_up" -> SystemMediaMonitor.adjustVolume(1)
-                "volume_down" -> SystemMediaMonitor.adjustVolume(-1)
-                "togglemute" -> SystemMediaMonitor.toggleMute()
+            if (NetEasePlayer.isActive()) {
+                when (action.lowercase()) {
+                    "play", "pause" -> NetEasePlayer.togglePlayPause()
+                    "next" -> NetEasePlayer.next()
+                    "prev", "previous" -> NetEasePlayer.previous()
+                    "seek" -> value?.let(NetEasePlayer::seek)
+                    else -> routeSystem(action, value)
+                }
+            } else {
+                routeSystem(action, value)
             }
             confirmControlResult()
         }
@@ -63,12 +78,26 @@ class MediaSyncService : Service() {
         handler.post(ticker)
     }
 
+    private fun routeSystem(action: String, value: Long?) {
+        when (action.lowercase()) {
+            "play" -> SystemMediaMonitor.play()
+            "pause" -> SystemMediaMonitor.pause()
+            "next" -> SystemMediaMonitor.next()
+            "prev", "previous" -> SystemMediaMonitor.previous()
+            "seek" -> value?.let(SystemMediaMonitor::seek)
+            "setvolume" -> value?.toInt()?.let(SystemMediaMonitor::setVolume)
+            "volume_up" -> SystemMediaMonitor.adjustVolume(1)
+            "volume_down" -> SystemMediaMonitor.adjustVolume(-1)
+            "togglemute" -> SystemMediaMonitor.toggleMute()
+        }
+    }
+
     private fun confirmControlResult() {
         // MediaSession commands are asynchronous. Re-read the authoritative state
         // a few times instead of guessing that the requested action succeeded.
         listOf(50L, 150L, 300L).forEach { delayMs ->
             handler.postDelayed({
-                val media = SystemMediaMonitor.currentState()
+                val media = activeMedia()
                 if (media.title.isNotBlank()) bridge.sendProgressState(media, urgent = true)
             }, delayMs)
         }
@@ -92,6 +121,7 @@ class MediaSyncService : Service() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         SystemMediaMonitor.stop()
+        NetEasePlayer.stop()
         bridge.stop()
         bridge.onControl = null
         bridge.onMusicRequest = null

@@ -571,6 +571,16 @@ class WearBridge private constructor(private val context: Context) {
         }, false, urgent)
     }
 
+    /**
+     * 切歌时让手环清空上一首的歌词与封面缓存，避免旧内容残留。
+     * 用 urgent 发送，确保排在即将下发的 music_info/lyrics/artwork 之前被处理。
+     */
+    fun sendClearCache(reason: String) {
+        if (!deviceInfoReceived) return
+        CommunicationLog.info("TX", "请求手环清空媒体缓存 reason=$reason")
+        sendJson(JSONObject().put("type", "cache_clear").put("reason", reason).put("session", sessionId), false, true)
+    }
+
     private fun sendAlbumArt(artworkId: String, artwork: String, trackAck: Boolean) {
         val value = artwork.takeIf { it.length <= MAX_ARTWORK_CHARS }.orEmpty()
         if (artworkId.isBlank() || value.isEmpty()) return
@@ -1002,8 +1012,7 @@ class WearBridge private constructor(private val context: Context) {
                 CommunicationLog.info("RX", "手环已接收完整歌词 id=$id lines=$lines")
             }
             "cache_clear_ack" -> {
-                CommunicationLog.warn("RX", "手环已清空媒体缓存 reason=${json.optString("reason")}")
-                softRestartConnectionLayer("手环媒体缓存已清空")
+                CommunicationLog.info("RX", "手环已清空媒体缓存 reason=${json.optString("reason")}")
             }
             "sync_ack" -> {
                 val sentAt = json.optLong("sentAt")
