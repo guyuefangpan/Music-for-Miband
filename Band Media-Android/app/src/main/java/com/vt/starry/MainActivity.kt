@@ -40,6 +40,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.vt.starry.sync.*
+import com.vt.starry.netease.NetEaseApi
+import com.vt.starry.qqmusic.QmApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 
 private val StarryGreen = Color(0xFF1DB954)
 private val AppBackground = Color(0xFF0E0E12)
@@ -55,6 +59,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val bridge = WearBridge.get(this)
+        NetEasePlayer.init(this)
         ContextCompat.startForegroundService(this, Intent(this, MediaSyncService::class.java))
         if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
@@ -71,10 +76,12 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Scaffold(containerColor = AppBackground, bottomBar = {
                     NavigationBar(containerColor = Panel) {
-                        NavigationBarItem(page == 0, { page = 0 }, { Icon(Icons.Default.MusicNote, null) }, label = { Text("正在播放") })
-                        NavigationBarItem(page == 1, { page = 1 }, { Icon(Icons.Default.Lyrics, null) }, label = { Text("歌词") })
-                        NavigationBarItem(page == 2, { page = 2 }, { Icon(Icons.Default.GraphicEq, null) }, label = { Text("日志") })
-                        NavigationBarItem(page == 3, { page = 3 }, { Icon(Icons.Default.Settings, null) }, label = { Text("设置") })
+                        // maxLines=1：五个标签全部单行，保证导航栏整体同高（"正在播放"曾因换行把栏挤高）。
+                        NavigationBarItem(page == 0, { page = 0 }, { Icon(Icons.Default.MusicNote, null) }, label = { Text("播放", maxLines = 1) })
+                        NavigationBarItem(page == 1, { page = 1 }, { Icon(Icons.Default.Lyrics, null) }, label = { Text("歌词", maxLines = 1) })
+                        NavigationBarItem(page == 2, { page = 2 }, { Icon(Icons.Default.GraphicEq, null) }, label = { Text("日志", maxLines = 1) })
+                        NavigationBarItem(page == 3, { page = 3 }, { Icon(Icons.Default.Settings, null) }, label = { Text("设置", maxLines = 1) })
+                        NavigationBarItem(page == 6, { page = 6 }, { Icon(Icons.Default.Search, null) }, label = { Text("搜索", maxLines = 1) })
                     }
                 }) { padding ->
                     Surface(Modifier.fillMaxSize().padding(padding), color = AppBackground) {
@@ -91,6 +98,7 @@ class MainActivity : ComponentActivity() {
                                 { page = 5 })
                             4 -> DiagnosticsPage(this@MainActivity, wear, permission, logs, bridge, { page = 3 })
                             5 -> OpenSourceLicensesPage { page = 3 }
+                            6 -> NetEasePage()
                             else -> NowPlayingPage(media, permission)
                         }
                     }
@@ -391,6 +399,170 @@ private fun StatusCard(title: String, value: String, healthy: Boolean, icon: Ima
             Text(value, color = if (healthy) StarryGreen else Muted, fontWeight = FontWeight.Bold)
         }
     }
+}
+
+@Composable
+private fun NetEasePage() {
+    var keyword by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<SearchItem>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<SearchItem?>(null) }
+    var status by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    val player by NetEasePlayer.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    val cover = remember(player.albumArt) { decodeCover(player.albumArt) }
+
+    // 主动推送到手环：与播放解耦。网易云结果走网易云链路，QQ 结果走 QQ 链路
+    // （QQ 能搜到周杰伦等网易云没有版权的原唱）。
+    fun push(item: SearchItem, wantLyrics: Boolean) {
+        if (busy) return
+        busy = true
+        status = if (item.qm != null) "正在从QQ音乐获取…" else "正在从网易云获取…"
+        val done: (Boolean, String) -> Unit = { ok, msg ->
+            busy = false
+            if (ok) selected = item
+            status = msg
+        }
+        val ne = item.ne
+        val qm = item.qm
+        when {
+            qm != null && wantLyrics -> NetEasePlayer.pushQqLyrics(qm, done)
+            qm != null -> NetEasePlayer.pushQqArtwork(qm, done)
+            ne != null && wantLyrics -> NetEasePlayer.pushLyrics(ne, done)
+            ne != null -> NetEasePlayer.pushArtwork(ne, done)
+        }
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp)) {
+        Text("搜索", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = keyword,
+                onValueChange = { keyword = it },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("搜索歌曲 / 歌手", color = Muted) },
+                singleLine = true,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Panel, unfocusedContainerColor = Panel,
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                    cursorColor = StarryGreen, focusedIndicatorColor = StarryGreen,
+                    unfocusedIndicatorColor = Muted
+                )
+            )
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = {
+                if (keyword.isBlank()) return@Button
+                searching = true
+                scope.launch {
+                    val kw = keyword
+                    // 双音源并行：网易云综合搜索 + QQ 联想（免签名免登录），互不阻塞。
+                    val neDeferred = scope.async { NetEaseApi.search(kw, 20) }
+                    val qmDeferred = scope.async { QmApi.suggest(kw, 10) }
+                    val ne = runCatching { neDeferred.await() }.getOrDefault(emptyList())
+                    val qm = runCatching { qmDeferred.await() }.getOrDefault(emptyList())
+                    val (expArtist, expTitle) = parseQuery(kw)
+                    // 合并双音源后按"原唱匹配度"排序：命中歌名+歌手、且非翻唱的置顶，
+                    // 翻唱/歌手不符的沉底，确保第一条一定是原唱。
+                    results = (ne.map { SearchItem(it.name, it.artist, ne = it, qm = null) } +
+                        qm.map { SearchItem(it.name, it.artist, ne = null, qm = it) })
+                        .sortedByDescending { scoreOriginal(it, expArtist, expTitle) }
+                    searching = false
+                }
+            }, enabled = keyword.isNotBlank() && !searching) {
+                Text(if (searching) "搜索中" else "搜索")
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(AppBackground), contentAlignment = Alignment.Center) {
+                        if (cover != null) Image(cover.asImageBitmap(), "封面", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        else Icon(Icons.Default.MusicNote, "封面", Modifier.size(28.dp), tint = Muted)
+                    }
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text(selected?.name ?: player.title.ifBlank { "未选择歌曲" }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(selected?.artist ?: player.artist.ifBlank { "搜索后选择歌曲" }, color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (status.isNotBlank()) Text(status, color = StarryGreen, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Button({ selected?.let { push(it, true) } }, enabled = selected != null && !busy, modifier = Modifier.weight(1f)) { Text(if (busy) "推送中" else "传歌词") }
+                    Spacer(Modifier.width(8.dp))
+                    Button({ selected?.let { push(it, false) } }, enabled = selected != null && !busy, modifier = Modifier.weight(1f)) { Text(if (busy) "推送中" else "传封面") }
+                }
+                TextButton({ NetEasePlayer.clearSelection(); selected = null; status = "已恢复系统同步" }) { Text("恢复系统同步", color = Muted, fontSize = 12.sp) }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("搜索结果", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(8.dp))
+        if (results.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("搜索歌曲后在此显示结果", color = Muted) }
+        else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(results) { song ->
+                Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(8.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(song.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    song.source, color = if (song.qm != null) StarryGreen else Muted,
+                                    fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (song.qm != null) Color(0x221DB954) else Color(0x22FFFFFF))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(song.artist, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        Button({ push(song, true) }, enabled = !busy) { Text("歌词") }
+                        Spacer(Modifier.width(6.dp))
+                        Button({ push(song, false) }, enabled = !busy) { Text("封面") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 搜索页统一结果条目：ne 为网易云结果、qm 为 QQ 音乐结果，二选一非空。 */
+private data class SearchItem(
+    val name: String,
+    val artist: String,
+    val ne: NetEaseApi.Song?,
+    val qm: QmApi.Song?,
+) {
+    val source: String get() = if (qm != null) "QQ音乐" else "网易云"
+}
+
+// 标题里出现这些词视为翻唱/非原唱版本，排序时沉底。
+private val COVER_KEYWORDS = setOf(
+    "翻唱", "cover", "伴奏", "纯音乐", "instrumental", "现场", "live", "remix",
+    "dj", "串烧", "戏腔", "慢摇", "卡点", "清唱", "男声", "女声", "伴奏版",
+)
+
+/** 解析搜索词："周杰伦 晴天" -> (歌手=周杰伦, 歌名=晴天)；无空格则歌名=整词、歌手空。 */
+private fun parseQuery(kw: String): Pair<String, String> {
+    val parts = kw.trim().split(Regex("\\s+"), limit = 2)
+    return if (parts.size == 2) parts[0] to parts[1] else "" to parts[0]
+}
+
+/** 原唱匹配度评分：命中歌名/歌手加分，翻唱或歌手不符减分，分数越高越靠前。 */
+private fun scoreOriginal(item: SearchItem, expArtist: String, expTitle: String): Int {
+    val name = item.name.lowercase()
+    val artist = item.artist.lowercase()
+    val t = expTitle.lowercase().trim()
+    val a = expArtist.lowercase().trim()
+    var score = 0
+    if (t.isNotEmpty() && (name.contains(t) || t.contains(name))) score += 50
+    if (a.isNotEmpty() && (artist.contains(a) || a.contains(artist))) score += 40
+    if (COVER_KEYWORDS.any { name.contains(it) }) score -= 60
+    if (a.isNotEmpty() && !artist.contains(a) && !a.contains(artist)) score -= 30
+    return score
 }
 
 private fun decodeCover(uri: String) = try {
