@@ -42,6 +42,7 @@ export default {
     this.lastWatchHeartbeatAckAt = 0
     this.albumArtChunks = {}
     this.publishedArtwork = { id: "", uri: "", bytes: 0, sum: 0, format: "" }
+    this.artworkCache = {}
     this.lyricsGroups = {}
     this.trackCleanupTimers = []
     // Register interconnect immediately. Cache cleanup is asynchronous and must
@@ -60,6 +61,7 @@ export default {
     this.pendingMediaState = null
     this.lastStoredMediaKey = ""
     this.publishedArtwork = { id: "", uri: "", bytes: 0, sum: 0, format: "" }
+    this.artworkCache = {}
     for (let i = 0; i < this.trackCleanupTimers.length; i++) clearTimeout(this.trackCleanupTimers[i])
     this.trackCleanupTimers = []
     const tasks = [
@@ -310,7 +312,7 @@ export default {
     const expectedSum = Number(message.sum || 0)
     const format = String(message.format || "")
     if (!requestId || !id || (format !== "jpg" && format !== "png") || expectedBytes < 1) return
-    const published = this.publishedArtwork || {}
+    const published = (this.artworkCache && this.artworkCache[id]) || this.publishedArtwork || {}
     const currentUri = this.lastMediaState ? String(this.lastMediaState.albumArt || "") : ""
     const publishedUri = String(published.uri || "")
     const suffix = format === "jpg" ? ".jpg" : ".png"
@@ -377,9 +379,9 @@ export default {
             this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "stale_track" })
             return
           }
-          const previousCover = String((this.publishedArtwork || {}).uri || this.lastMediaState.albumArt || "")
           this.lastMediaState.albumArt = coverFile
           this.publishedArtwork = { id: id, uri: coverFile, bytes: bytes.length, sum: expectedSum, format: format }
+          this.artworkCache[id] = { uri: coverFile, bytes: bytes.length, sum: expectedSum, format: format }
           this.publishRealtimeState()
           this.persistMediaState(this.lastMediaState)
           setTimeout(() => {
@@ -388,11 +390,8 @@ export default {
               return
             }
             this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: true, bytes: bytes.length, sum: expectedSum, format: format, verified: format === "jpg" ? "jpeg_structure_v1" : "png_structure_v1", uri: coverFile })
-            if (previousCover && previousCover !== coverFile) {
-              setTimeout(() => {
-                if (!this.destroyed && (!this.lastMediaState || this.lastMediaState.albumArt !== previousCover)) file.delete({ uri: previousCover, success: () => {}, fail: () => {}, complete: () => {} })
-              }, 5000)
-            }
+            // Keep verified covers in the per-artwork cache so returning to a
+            // previous song can restore its image without another transfer.
           }, 200)
         },
         fail: (error, code) => { console.log("cover write failed code=" + String(code || "") + " " + JSON.stringify(error || {})); this.send({ type: "asset_ack", asset: "artwork", id: id, tx: transferId, ok: false, code: "write_" + String(code || "failed") }) },
@@ -477,6 +476,7 @@ export default {
     this.lyricsGroups = {}
     this.lastMediaState = null
     this.publishedArtwork = { id: "", uri: "", bytes: 0, sum: 0, format: "" }
+    this.artworkCache = {}
     this.pendingMediaState = null
     this.lastStoredMediaKey = ""
     this.publishRealtimeState()
@@ -616,14 +616,13 @@ export default {
     }
     state.artworkId = String(message.artworkId || "")
     state.lyricsId = String(message.lyricsId || "")
-    if (state.artworkId && previous && previous.mediaKey === state.mediaKey && previous.artworkId === state.artworkId) {
-      state.albumArt = previous.albumArt || ""
+    if (state.artworkId) {
+      const cached = this.artworkCache[state.artworkId]
+      if (cached && cached.uri) state.albumArt = String(cached.uri)
+      else if (previous && previous.mediaKey === state.mediaKey && previous.artworkId === state.artworkId) state.albumArt = previous.albumArt || ""
     }
-    if (state.artworkId && !state.albumArt && this.publishedArtwork && this.publishedArtwork.uri) {
-      // Keep the last verified cover visible until this track's replacement
-      // has been fully written, validated and acknowledged.
-      state.albumArt = String(this.publishedArtwork.uri || "")
-    }
+    // A different track must not inherit the previous track's cover. A cached
+    // cover is restored only when its own artwork id is seen again.
     if (state.lyricsId && previous && previous.mediaKey === state.mediaKey && previous.lyricsId === state.lyricsId) {
       state.lyrics = previous.lyrics || []
     }
